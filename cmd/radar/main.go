@@ -16,6 +16,7 @@ import (
 	"new_radar/internal/db"
 	"new_radar/internal/handler"
 	"new_radar/internal/mib"
+	"new_radar/internal/onboarding"
 	"new_radar/internal/service"
 	"new_radar/internal/snmp"
 )
@@ -93,6 +94,15 @@ func main() {
 	portH := handler.NewPortHandler(portSvc, switchRepo)
 	mibH := handler.NewMIBHandler(mibStore)
 
+	// Onboarding service
+	onboardingSvc, err := onboarding.NewService(database, "onboarding")
+	if err != nil {
+		slog.Warn("failed to initialize onboarding service", "error", err)
+	} else {
+		slog.Info("onboarding service ready")
+	}
+	onboardingH := handler.NewOnboardingHandler(onboardingSvc)
+
 	// Router
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -167,6 +177,16 @@ func main() {
 		r.Get("/mibs/resolve", mibH.ResolveOID)
 		r.Get("/mibs/search", mibH.Search)
 		r.Delete("/mibs/modules", mibH.DeleteModule)
+
+		// Onboarding workflow
+		r.Post("/onboarding", onboardingH.CreateCase)
+		r.Get("/onboarding", onboardingH.ListCases)
+		r.Get("/onboarding/{id}", onboardingH.GetCase)
+		r.Post("/onboarding/{id}/fingerprint", onboardingH.SubmitFingerprint)
+		r.Post("/onboarding/{id}/evidence", onboardingH.UploadEvidence)
+		r.Post("/onboarding/{id}/analyze", onboardingH.Analyze)
+		r.Get("/onboarding/{id}/drafts", onboardingH.GetDrafts)
+		r.Post("/onboarding/{id}/approve", onboardingH.Approve)
 
 		// TODO Phase 7: RSPAN
 		// r.Route("/rspan", func(r chi.Router) { ... })
