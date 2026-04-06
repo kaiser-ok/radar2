@@ -89,6 +89,8 @@ func main() {
 	portSvc := service.NewPortService(snmpClient, oidRegistry, profiles)
 	poeSvc := service.NewPoEService(snmpClient, oidRegistry, profiles)
 	infoSvc := service.NewSwitchInfoService(snmpClient, oidRegistry, profiles)
+	fdbSvc := service.NewFDBService(snmpClient, oidRegistry, profiles)
+	discoverySvc := service.NewDiscoveryService(snmpClient, profiles, cfg.Discovery.ConcurrentWorkers)
 	taskStore := service.NewTaskStore()
 	taskStore.StartCleanupLoop(cfg.Task.CleanupInterval, cfg.Task.MaxAge)
 	execSvc := service.NewExecService(taskStore, 30*time.Second)
@@ -100,6 +102,8 @@ func main() {
 	mibH := handler.NewMIBHandler(mibStore)
 	toolsH := handler.NewToolsHandler(execSvc)
 	swInfoH := handler.NewSwitchInfoHandler(poeSvc, infoSvc, switchRepo)
+	snmpH := handler.NewSNMPHandler(snmpClient)
+	discoveryH := handler.NewDiscoveryHandler(discoverySvc, fdbSvc, switchRepo)
 
 	// Onboarding service
 	onboardingSvc, err := onboarding.NewService(database, "onboarding")
@@ -154,16 +158,15 @@ func main() {
 		r.Get("/switches/{swId}/cpu", swInfoH.CPU)
 		r.Get("/switches/{swId}/stats", swInfoH.Stats)
 		r.Get("/switches/{swId}/vlans", swInfoH.VLANs)
-		// TODO Phase 5: r.Get("/switches/{swId}/fdb", ...)
-		// TODO Phase 5: r.Delete("/switches/{swId}/fdb", ...)
-		// TODO Phase 5: r.Post("/switches/{swId}/reboot", ...)
+		r.Get("/switches/{swId}/fdb", discoveryH.GetFDB)
+		r.Post("/switches/{swId}/reboot", discoveryH.Reboot)
 
-		// TODO Phase 5: SNMP
-		// r.Post("/snmp/test", ...)
-		// r.Post("/snmp/query", ...)
-		// r.Post("/snmp/discovery", ...)
+		// SNMP
+		r.Post("/snmp/test", snmpH.Test)
+		r.Post("/snmp/query", snmpH.Query)
+		r.Post("/snmp/discovery", discoveryH.Discover)
 
-		// TODO Phase 5: Topology
+		// TODO Phase 6: Topology
 		// r.Post("/units/{unitId}/topology/rebuild", ...)
 		// r.Get("/units/{unitId}/ports", ...)
 
