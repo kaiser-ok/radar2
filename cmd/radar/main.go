@@ -87,6 +87,8 @@ func main() {
 
 	// Services
 	portSvc := service.NewPortService(snmpClient, oidRegistry, profiles)
+	poeSvc := service.NewPoEService(snmpClient, oidRegistry, profiles)
+	infoSvc := service.NewSwitchInfoService(snmpClient, oidRegistry, profiles)
 	taskStore := service.NewTaskStore()
 	taskStore.StartCleanupLoop(cfg.Task.CleanupInterval, cfg.Task.MaxAge)
 	execSvc := service.NewExecService(taskStore, 30*time.Second)
@@ -97,6 +99,7 @@ func main() {
 	portH := handler.NewPortHandler(portSvc, switchRepo)
 	mibH := handler.NewMIBHandler(mibStore)
 	toolsH := handler.NewToolsHandler(execSvc)
+	swInfoH := handler.NewSwitchInfoHandler(poeSvc, infoSvc, switchRepo)
 
 	// Onboarding service
 	onboardingSvc, err := onboarding.NewService(database, "onboarding")
@@ -142,18 +145,18 @@ func main() {
 		r.Post("/tools/dad-check", toolsH.DADCheck)
 		r.Get("/tools/tasks/{taskId}", toolsH.GetTask)
 
-		// TODO Phase 4: PoE
-		// r.Get("/switches/{swId}/poe", ...)
-		// r.Get("/switches/{swId}/poe/report", ...)
-		// r.Put("/switches/{swId}/poe/{port}", ...)
+		// PoE
+		r.Get("/switches/{swId}/poe", swInfoH.PoESupport)
+		r.Get("/switches/{swId}/poe/report", swInfoH.PoEReport)
+		r.Put("/switches/{swId}/poe/{port}", swInfoH.SetPoE)
 
-		// TODO Phase 4: Switch info
-		// r.Get("/switches/{swId}/cpu", ...)
-		// r.Get("/switches/{swId}/stats", ...)
-		// r.Get("/switches/{swId}/vlans", ...)
-		// r.Get("/switches/{swId}/fdb", ...)
-		// r.Delete("/switches/{swId}/fdb", ...)
-		// r.Post("/switches/{swId}/reboot", ...)
+		// Switch info
+		r.Get("/switches/{swId}/cpu", swInfoH.CPU)
+		r.Get("/switches/{swId}/stats", swInfoH.Stats)
+		r.Get("/switches/{swId}/vlans", swInfoH.VLANs)
+		// TODO Phase 5: r.Get("/switches/{swId}/fdb", ...)
+		// TODO Phase 5: r.Delete("/switches/{swId}/fdb", ...)
+		// TODO Phase 5: r.Post("/switches/{swId}/reboot", ...)
 
 		// TODO Phase 5: SNMP
 		// r.Post("/snmp/test", ...)
