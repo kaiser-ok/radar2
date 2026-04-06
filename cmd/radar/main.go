@@ -87,12 +87,16 @@ func main() {
 
 	// Services
 	portSvc := service.NewPortService(snmpClient, oidRegistry, profiles)
+	taskStore := service.NewTaskStore()
+	taskStore.StartCleanupLoop(cfg.Task.CleanupInterval, cfg.Task.MaxAge)
+	execSvc := service.NewExecService(taskStore, 30*time.Second)
 
 	// Handlers
 	systemH := handler.NewSystemHandler(cfg)
 	switchH := handler.NewSwitchHandler(switchRepo)
 	portH := handler.NewPortHandler(portSvc, switchRepo)
 	mibH := handler.NewMIBHandler(mibStore)
+	toolsH := handler.NewToolsHandler(execSvc)
 
 	// Onboarding service
 	onboardingSvc, err := onboarding.NewService(database, "onboarding")
@@ -131,12 +135,12 @@ func main() {
 		r.Put("/switches/{swId}/ports/{port}/admin", portH.SetPortAdmin)
 		// TODO Phase 2b: r.Put("/switches/{swId}/ports/{port}/speed", ...)
 
-		// TODO Phase 3: Network tools
-		// r.Post("/tools/ping", ...)
-		// r.Post("/tools/traceroute", ...)
-		// r.Post("/tools/arping", ...)
-		// r.Post("/tools/dad-check", ...)
-		// r.Get("/tools/tasks/{taskId}", ...)
+		// Network tools (async)
+		r.Post("/tools/ping", toolsH.Ping)
+		r.Post("/tools/traceroute", toolsH.Traceroute)
+		r.Post("/tools/arping", toolsH.Arping)
+		r.Post("/tools/dad-check", toolsH.DADCheck)
+		r.Get("/tools/tasks/{taskId}", toolsH.GetTask)
 
 		// TODO Phase 4: PoE
 		// r.Get("/switches/{swId}/poe", ...)
