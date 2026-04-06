@@ -1,0 +1,35 @@
+server:
+  port: 8082
+  read_timeout: 15s
+  write_timeout: 60s
+
+auth:
+  username: "admin"
+  password: "gentrice"
+
+database:
+  path: "./radar.db"
+
+snmp:
+  timeout: 5s
+  retries: 1
+  max_oids_per_request: 20
+  oid_file: "./configs/oids.yaml"
+
+task:
+  cleanup_interval: 5m
+  max_age: 30m
+
+discovery:
+  timeout: 60s
+  concurrent_workers: 20
+
+rspan:
+  interface: "eth1"
+  pcap_dir: "./captures"
+  max_pcap_size: "100MB"
+  max_pcap_age: "24h"
+  bpf_filter: ""
+
+version: "2.0.0"
+build_date: ""
