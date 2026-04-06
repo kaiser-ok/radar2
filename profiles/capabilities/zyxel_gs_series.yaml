@@ -1,0 +1,17 @@
+id: zyxel_gs_series
+capabilities:
+  system.read: true
+  interfaces.read: true
+  port.admin.read: true
+  port.admin.write: true
+  port.oper.read: true
+  port.traffic.read: true
+  mac_table.read: true
+  vlan.read: true
+  vlan.write: false
+  poe.status.read: false
+  poe.control.write: false
+  ssh.cli.read: true
+  ssh.cli.write: true
+  mirror.rspan.read: false
+  mirror.rspan.write: false

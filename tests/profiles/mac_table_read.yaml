@@ -1,0 +1,42 @@
+id: mac_table_read_test
+capability: mac_table.read
+
+preconditions:
+  - device must support capability
+  - at least 1 active host connected to switch
+
+steps:
+  - action: read_mac_table
+    method: primary
+    expect:
+      - returns list of MAC entries
+      - each has mac address and port number
+      - at least 1 entry present
+
+  - action: validate_mac_format
+    expect:
+      - MAC addresses are valid format (aa:bb:cc:dd:ee:ff or aabbccddeeff)
+      - port numbers are positive integers
+
+  - action: read_mac_table
+    method: fallback
+    expect:
+      - returns same logical data via SSH
+      - known MAC from primary appears in fallback output
+
+  - action: cross_validate
+    expect:
+      - MAC count from primary and fallback within 20% tolerance
+      - known test MAC appears in both results
+
+pass_criteria:
+  - primary returns valid MAC table
+  - all MAC addresses are valid format
+  - all port numbers reference real ports
+  - fallback produces equivalent data (if supported)
+
+evidence:
+  - api response json
+  - snmpwalk of bridge MIB
+  - ssh command output (if fallback tested)
+  - MAC count comparison

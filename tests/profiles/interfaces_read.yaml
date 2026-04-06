@@ -1,0 +1,31 @@
+id: interfaces_read_test
+capability: interfaces.read
+
+preconditions:
+  - device must support capability
+  - SNMP or SSH connectivity confirmed
+
+steps:
+  - action: read_interfaces
+    method: primary
+    expect:
+      - returns list of interfaces
+      - each has ifIndex, ifDescr, ifAdminStatus, ifOperStatus
+      - at least 1 interface present
+
+  - action: read_interfaces
+    method: fallback
+    expect:
+      - returns same logical data via SSH
+      - port names match SNMP output
+
+pass_criteria:
+  - primary method returns valid interface list
+  - ifAdminStatus values are 1 (up) or 2 (down)
+  - ifOperStatus values are 1 (up) or 2 (down)
+  - fallback method produces equivalent data (if supported)
+
+evidence:
+  - api response json
+  - snmpwalk output of ifTable
+  - ssh command output (if fallback tested)

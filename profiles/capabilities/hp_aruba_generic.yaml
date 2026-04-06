@@ -1,0 +1,17 @@
+id: hp_aruba_generic
+capabilities:
+  system.read: true
+  interfaces.read: true
+  port.admin.read: true
+  port.admin.write: true
+  port.oper.read: true
+  port.traffic.read: true
+  mac_table.read: true
+  vlan.read: true
+  vlan.write: false
+  poe.status.read: true
+  poe.control.write: true
+  ssh.cli.read: true
+  ssh.cli.write: true
+  mirror.rspan.read: false
+  mirror.rspan.write: false

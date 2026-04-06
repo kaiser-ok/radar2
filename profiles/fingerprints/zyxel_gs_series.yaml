@@ -1,0 +1,13 @@
+id: zyxel_gs_series
+vendor: zyxel
+os: zyxel
+match:
+  sysobjectid_prefix:
+    - "1.3.6.1.4.1.890."
+  sysdescr_contains:
+    - "ZyXEL"
+    - "Zyxel"
+    - "GS1920"
+    - "GS2220"
+    - "XGS"
+priority: 80

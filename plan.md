@@ -110,19 +110,98 @@ All endpoints under `/api/v2/`, JSON request/response, proper HTTP methods.
 
 ---
 
+## 4-Layer Device Profile System
+
+### Architecture
+
+```
+Layer 1: Fingerprint     — WHO is this device? (sysObjectID + sysDescr matching)
+Layer 2: Capability      — WHAT can it do? (boolean matrix: port.admin.write, mac_table.read, etc.)
+Layer 3: Vendor Profile  — HOW to do it? (OID/CLI mappings with primary → fallback → verify)
+Layer 4: Override        — Model-specific tweaks (extends base, minimal diff)
+```
+
+### Execution Flow
+
+```
+1. Discovery: SNMP GET sysObjectID + sysDescr
+2. Fingerprint: match → "cisco_ios_generic" (priority-sorted)
+3. Capability: check "port.admin.write" → true
+4. Mapping: primary (SNMP SET ifAdminStatus) → fallback (SSH "shutdown") → verify (SNMP GET readback)
+```
+
+### Capability List (v1)
+
+```
+system.read          interfaces.read      port.admin.read
+port.admin.write     port.oper.read       port.traffic.read
+mac_table.read       vlan.read            poe.status.read
+poe.control.write    ssh.cli.read         ssh.cli.write
+```
+
+### Supported Vendors (v1)
+- **Cisco** — IOS (C2960, C3560, SG series)
+- **D-Link** — DGS/DES/DXS series
+- **HP/Aruba** — ProCurve, Aruba, CX
+- **Zyxel** — GS/XGS series
+- **Mikrotik** — RouterOS
+
+### File Structure
+
+```
+profiles/
+├── fingerprints/          # Layer 1: device identification
+│   ├── cisco_ios_generic.yaml
+│   ├── dlink_dgs_series.yaml
+│   ├── hp_aruba_generic.yaml
+│   ├── zyxel_gs_series.yaml
+│   └── mikrotik_routeros_generic.yaml
+├── capabilities/          # Layer 2: what can it do
+│   ├── cisco_ios_generic.yaml
+│   ├── dlink_dgs_series.yaml
+│   ├── hp_aruba_generic.yaml
+│   ├── zyxel_gs_series.yaml
+│   └── mikrotik_routeros_generic.yaml
+├── vendors/               # Layer 3: OID/CLI mappings (primary/fallback/verify)
+│   ├── cisco_ios_generic.yaml
+│   ├── dlink_dgs_series.yaml
+│   ├── hp_aruba_generic.yaml
+│   ├── zyxel_gs_series.yaml
+│   └── mikrotik_routeros_generic.yaml
+└── overrides/             # Layer 4: model-specific tweaks
+    ├── cisco_c2960_override.yaml
+    └── dlink_dgs1510_override.yaml
+
+tests/profiles/            # Test profiles for acceptance verification
+├── interfaces_read.yaml
+├── port_admin_write.yaml
+└── mac_table_read.yaml
+```
+
+### MIB Management (Hybrid)
+- Pure Go MIB parser (`internal/mib/`) — parses .mib files, resolves OID tree
+- Cached in SQLite (`mib_modules`, `mib_oids` tables)
+- API: upload, lookup by name, resolve by OID, search by keyword
+- Bundled: standard MIBs + vendor MIBs in `mibs/` directory
+
+---
+
 ## Project Structure
 
 ```
 new_radar/
 ├── cmd/radar/main.go                # Entry point, DI wiring
 ├── internal/
-│   ├── config/config.go             # Viper-based YAML + env config
+│   ├── config/
+│   │   ├── config.go                # Viper-based YAML + env config
+│   │   └── vendor.go                # 4-layer profile registry (fingerprint/capability/mapping/override)
 │   ├── auth/basic.go                # HTTP Basic Auth middleware
 │   ├── handler/
 │   │   ├── handler.go               # Common JSON response helpers
 │   │   ├── system.go                # /version, /interfaces
 │   │   ├── switches.go              # Switch CRUD
 │   │   ├── ports.go                 # Port status, control, speed, descriptions
+│   │   ├── mib.go                   # MIB upload, lookup, search
 │   │   ├── poe.go                   # PoE endpoints
 │   │   ├── switch_info.go           # CPU, stats, VLANs, FDB, reboot
 │   │   ├── tools.go                 # Ping, traceroute, arping, dad_check, task polling
@@ -145,14 +224,16 @@ new_radar/
 │   │   └── rspan.go                 # RSPAN session config + capture orchestration
 │   ├── snmp/
 │   │   ├── client.go                # gosnmp wrapper (Get/Set/Walk/BulkWalk)
-│   │   ├── oids.go                  # OID registry from YAML
-│   │   └── session.go               # Session factory
+│   │   └── oids.go                  # OID registry from YAML
+│   ├── mib/
+│   │   ├── parser.go                # Pure Go MIB file parser
+│   │   └── store.go                 # MIB store with SQLite cache
 │   ├── sshcli/
 │   │   ├── client.go                # SSH client (golang.org/x/crypto/ssh)
 │   │   ├── telnet.go                # Telnet client
 │   │   └── parser.go                # CLI output parsers per vendor
 │   ├── device/
-│   │   └── executor.go              # Routes operations to SNMP or SSH/Telnet
+│   │   └── executor.go              # Reads profile, executes primary → fallback → verify
 │   ├── rspan/
 │   │   ├── capture.go               # Packet capture on 2nd NIC (gopacket/libpcap)
 │   │   ├── analyzer.go              # MAC/IP learning, traffic stats
@@ -207,17 +288,41 @@ HTTP Request → chi Router (BasicAuth middleware)
 
 ## SNMP Design
 
-- **OID Registry** (`configs/oids.yaml`): MIB-2, PoE (RFC 3621), VLAN (Q-BRIDGE), vendor-specific
-- **SNMP Client interface**: `Get()`, `Set()`, `Walk()`, `BulkWalk()` — short-lived UDP connections
-- **Multi-vendor**: `sysDescr` fingerprinting, stored per switch. Standard OIDs first, vendor fallback
+- **OID Registry** (`configs/oids.yaml`): standard MIB-2 OIDs as base reference
+- **SNMP Client**: `Get()`, `Set()`, `Walk()`, `BulkWalk()` — short-lived UDP connections
+- **Device profiles** drive all vendor-specific logic — services read OIDs from profile mappings, not hardcoded
+
+## Device Execution Model
+
+Services never hardcode vendor logic. Instead:
+
+1. **Lookup profile** for the target switch (by sysObjectID/sysDescr or stored profile ID)
+2. **Check capability** — e.g. `profile.HasCapability("port.admin.write")`
+3. **Get mapping** — `profile.GetMapping("port.admin.write")`
+4. **Execute primary** — SNMP SET with `oid_template` and `value_map`
+5. **On failure, execute fallback** — SSH CLI commands
+6. **Verify** — SNMP GET readback to confirm the change took effect
+
+```go
+// Example: set port admin status
+mapping := profile.GetMapping("port.admin.write")
+err := executor.RunPrimary(mapping, params)
+if err != nil && mapping.Fallback != nil {
+    err = executor.RunFallback(mapping, params)
+}
+if mapping.Verify != nil {
+    executor.RunVerify(mapping, params)
+}
+```
 
 ## SSH/Telnet Support
 
-For devices with poor SNMP support (reboot, FDB, port speed, clear FDB, topology rebuild):
-- **Device Executor** routes to SSH/Telnet based on `switches.access_method`
-- **SSH Client**: `golang.org/x/crypto/ssh`, sends CLI commands, reads output with timeout
-- **CLI Parser**: vendor-aware text parsers (Cisco IOS, D-Link, etc.), selected by `switches.vendor`
-- **DB fields**: `access_method`, `ssh_user`, `ssh_password`, `ssh_port`
+SSH/Telnet is handled as the **fallback method** in vendor profile mappings, not as a separate routing layer:
+- Each capability mapping can define `primary` (SNMP) → `fallback` (SSH/CLI) → `verify` (readback)
+- SSH commands are defined per-vendor in profile YAML, not hardcoded
+- **SSH Client**: `golang.org/x/crypto/ssh`, sends CLI commands per `profiles/vendors/*.yaml`
+- **CLI Parser**: vendor-aware text parsers, selected by profile's `ssh.parser` field
+- **DB fields**: `access_method`, `ssh_user`, `ssh_password`, `ssh_port` (per-switch credentials)
 
 ## Async Task System
 

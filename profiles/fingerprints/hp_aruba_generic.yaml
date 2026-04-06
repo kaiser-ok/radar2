@@ -1,0 +1,13 @@
+id: hp_aruba_generic
+vendor: hp
+os: procurve
+match:
+  sysobjectid_prefix:
+    - "1.3.6.1.4.1.11."
+    - "1.3.6.1.4.1.47196."
+  sysdescr_contains:
+    - "ProCurve"
+    - "Aruba"
+    - "HPE"
+    - "ArubaOS"
+priority: 85

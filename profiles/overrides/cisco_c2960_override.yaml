@@ -1,0 +1,39 @@
+id: cisco_c2960_override
+extends: cisco_ios_generic
+match:
+  sysdescr_contains:
+    - "C2960"
+overrides:
+  capabilities:
+    poe.status.read: true
+    poe.control.write: true
+
+  mappings:
+    poe.status.read:
+      method: snmp
+      oids:
+        admin_enable: "1.3.6.1.2.1.105.1.1.1.3"
+        detection_status: "1.3.6.1.2.1.105.1.1.1.6"
+        power_consumption: "1.3.6.1.4.1.9.9.402.1.2.1.7"
+
+    poe.control.write:
+      primary:
+        method: snmp
+        oid_template: "1.3.6.1.2.1.105.1.1.1.3.1.{port}"
+        value_map:
+          on: 1
+          off: 2
+      fallback:
+        method: ssh
+        commands:
+          on:
+            - "configure terminal"
+            - "interface {port_name}"
+            - "power inline auto"
+          off:
+            - "configure terminal"
+            - "interface {port_name}"
+            - "power inline never"
+      verify:
+        method: snmp
+        oid_template: "1.3.6.1.2.1.105.1.1.1.3.1.{port}"

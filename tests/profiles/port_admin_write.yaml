@@ -1,0 +1,51 @@
+id: port_admin_write_test
+capability: port.admin.write
+
+preconditions:
+  - device must support capability
+  - target interface exists and is not critical uplink
+  - no production traffic on test port
+
+steps:
+  - action: read_port_admin
+    args:
+      port: "{test_port}"
+    save_as: original_state
+
+  - action: set_port_admin
+    args:
+      port: "{test_port}"
+      state: down
+
+  - action: verify_snmp
+    args:
+      oid: "1.3.6.1.2.1.2.2.1.7.{test_port}"
+      expected: 2
+    wait: 3s
+
+  - action: set_port_admin
+    args:
+      port: "{test_port}"
+      state: up
+
+  - action: verify_snmp
+    args:
+      oid: "1.3.6.1.2.1.2.2.1.7.{test_port}"
+      expected: 1
+    wait: 3s
+
+  - action: restore_port_admin
+    args:
+      port: "{test_port}"
+      state: "{original_state}"
+
+pass_criteria:
+  - port state changes to down (ifAdminStatus = 2) within 5 seconds
+  - port state changes to up (ifAdminStatus = 1) within 5 seconds
+  - verify readback matches expected value
+  - port restored to original state
+
+evidence:
+  - api response json for each step
+  - snmpget readback values
+  - operation log with timestamps

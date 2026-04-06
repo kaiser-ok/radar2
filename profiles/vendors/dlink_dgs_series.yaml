@@ -1,0 +1,112 @@
+id: dlink_dgs_series
+protocols:
+  snmp:
+    version: v2c
+  ssh:
+    enabled: true
+    prompt_regex: "#$"
+    pager_disable: "disable clipaging"
+
+mappings:
+  system.read:
+    method: snmp
+    oids:
+      hostname: "1.3.6.1.2.1.1.5.0"
+      description: "1.3.6.1.2.1.1.1.0"
+      uptime: "1.3.6.1.2.1.1.3.0"
+      objectid: "1.3.6.1.2.1.1.2.0"
+      cpu: "1.3.6.1.4.1.171.12.1.1.6.2.0"
+
+  interfaces.read:
+    primary:
+      method: snmp
+      table: "1.3.6.1.2.1.2.2.1"
+      fields:
+        ifIndex: "1"
+        ifDescr: "2"
+        ifType: "3"
+        ifSpeed: "5"
+        ifAdminStatus: "7"
+        ifOperStatus: "8"
+        ifInOctets: "10"
+        ifOutOctets: "16"
+    fallback:
+      method: ssh
+      commands:
+        interfaces: "show ports"
+
+  port.admin.read:
+    method: snmp
+    oid_template: "1.3.6.1.2.1.2.2.1.7.{ifIndex}"
+
+  port.admin.write:
+    primary:
+      method: snmp
+      oid_template: "1.3.6.1.2.1.2.2.1.7.{ifIndex}"
+      value_map:
+        up: 1
+        down: 2
+    fallback:
+      method: ssh
+      commands:
+        down:
+          - "config ports {port_name} state disable"
+        up:
+          - "config ports {port_name} state enable"
+    verify:
+      method: snmp
+      oid_template: "1.3.6.1.2.1.2.2.1.7.{ifIndex}"
+
+  port.oper.read:
+    method: snmp
+    oid_template: "1.3.6.1.2.1.2.2.1.8.{ifIndex}"
+
+  port.traffic.read:
+    method: snmp
+    table: "1.3.6.1.2.1.2.2.1"
+    fields:
+      ifInOctets: "10"
+      ifOutOctets: "16"
+      ifInErrors: "14"
+      ifOutErrors: "20"
+
+  mac_table.read:
+    primary:
+      method: snmp
+      table: "1.3.6.1.2.1.17.7.1.2.2.1"
+      fields:
+        port: "2"
+    fallback:
+      method: ssh
+      commands:
+        mac_table: "show fdb"
+
+  vlan.read:
+    primary:
+      method: snmp
+      table: "1.3.6.1.2.1.17.7.1.4.3.1"
+      fields:
+        name: "1"
+        egress_ports: "2"
+    fallback:
+      method: ssh
+      commands:
+        vlans: "show vlan"
+
+  ssh.cli.read:
+    method: ssh
+    commands:
+      mac_table: "show fdb"
+      interfaces: "show ports"
+      vlans: "show vlan"
+
+  ssh.cli.write:
+    method: ssh
+    commands:
+      shutdown_port:
+        - "config ports {port_name} state disable"
+      no_shutdown_port:
+        - "config ports {port_name} state enable"
+      reboot:
+        - "reboot"
+        - "y"

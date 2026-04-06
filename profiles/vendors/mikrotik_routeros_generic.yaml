@@ -1,0 +1,102 @@
+id: mikrotik_routeros_generic
+protocols:
+  snmp:
+    version: v2c
+  ssh:
+    enabled: true
+    prompt_regex: "] >$"
+    pager_disable: ""
+    note: "Mikrotik RouterOS uses unique CLI syntax, not Cisco-like"
+
+mappings:
+  system.read:
+    method: snmp
+    oids:
+      hostname: "1.3.6.1.2.1.1.5.0"
+      description: "1.3.6.1.2.1.1.1.0"
+      uptime: "1.3.6.1.2.1.1.3.0"
+      objectid: "1.3.6.1.2.1.1.2.0"
+      cpu: "1.3.6.1.2.1.25.3.3.1.2.1"
+      firmware: "1.3.6.1.4.1.14988.1.1.4.4.0"
+
+  interfaces.read:
+    primary:
+      method: snmp
+      table: "1.3.6.1.2.1.2.2.1"
+      fields:
+        ifIndex: "1"
+        ifDescr: "2"
+        ifType: "3"
+        ifSpeed: "5"
+        ifAdminStatus: "7"
+        ifOperStatus: "8"
+        ifInOctets: "10"
+        ifOutOctets: "16"
+    fallback:
+      method: ssh
+      commands:
+        interfaces: "/interface print"
+
+  port.admin.write:
+    primary:
+      method: snmp
+      oid_template: "1.3.6.1.2.1.2.2.1.7.{ifIndex}"
+      value_map:
+        up: 1
+        down: 2
+    fallback:
+      method: ssh
+      commands:
+        down:
+          - "/interface disable {port_name}"
+        up:
+          - "/interface enable {port_name}"
+    verify:
+      method: snmp
+      oid_template: "1.3.6.1.2.1.2.2.1.7.{ifIndex}"
+
+  port.oper.read:
+    method: snmp
+    oid_template: "1.3.6.1.2.1.2.2.1.8.{ifIndex}"
+
+  mac_table.read:
+    primary:
+      method: snmp
+      table: "1.3.6.1.2.1.17.7.1.2.2.1"
+      fields:
+        port: "2"
+    fallback:
+      method: ssh
+      commands:
+        mac_table: "/interface bridge host print"
+
+  vlan.read:
+    primary:
+      method: snmp
+      table: "1.3.6.1.2.1.17.7.1.4.3.1"
+      fields:
+        name: "1"
+        egress_ports: "2"
+    fallback:
+      method: ssh
+      commands:
+        vlans: "/interface bridge vlan print"
+
+  ssh.cli.read:
+    method: ssh
+    commands:
+      mac_table: "/interface bridge host print"
+      interfaces: "/interface print"
+      vlans: "/interface bridge vlan print"
+      version: "/system resource print"
+
+  ssh.cli.write:
+    method: ssh
+    commands:
+      shutdown_port:
+        - "/interface disable {port_name}"
+      no_shutdown_port:
+        - "/interface enable {port_name}"
+      reboot:
+        - "/system reboot"
+        - "y"

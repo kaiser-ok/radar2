@@ -15,6 +15,9 @@ import (
 	"new_radar/internal/config"
 	"new_radar/internal/db"
 	"new_radar/internal/handler"
+	"new_radar/internal/mib"
+	"new_radar/internal/service"
+	"new_radar/internal/snmp"
 )
 
 var (
@@ -56,9 +59,39 @@ func main() {
 	// Repos
 	switchRepo := db.NewSwitchRepo(database)
 
+	// SNMP
+	snmpClient := snmp.NewClient(cfg.SNMP.Timeout, cfg.SNMP.Retries, cfg.SNMP.MaxOIDsPerReq)
+	oidRegistry, err := snmp.LoadOIDs(cfg.SNMP.OIDFile)
+	if err != nil {
+		slog.Error("failed to load OID registry", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("OID registry loaded", "file", cfg.SNMP.OIDFile)
+
+	// 4-layer device profile system (fingerprint → capability → vendor mapping → override)
+	profiles, err := config.LoadProfiles("profiles")
+	if err != nil {
+		slog.Warn("failed to load device profiles", "error", err)
+	} else {
+		slog.Info("device profiles loaded")
+	}
+
+	// MIB store
+	mibStore, err := mib.NewStore(database, "mibs")
+	if err != nil {
+		slog.Warn("failed to initialize MIB store", "error", err)
+	} else {
+		slog.Info("MIB store ready")
+	}
+
+	// Services
+	portSvc := service.NewPortService(snmpClient, oidRegistry, profiles)
+
 	// Handlers
 	systemH := handler.NewSystemHandler(cfg)
 	switchH := handler.NewSwitchHandler(switchRepo)
+	portH := handler.NewPortHandler(portSvc, switchRepo)
+	mibH := handler.NewMIBHandler(mibStore)
 
 	// Router
 	r := chi.NewRouter()
@@ -81,12 +114,12 @@ func main() {
 		r.Put("/switches/{swId}", switchH.Update)
 		r.Delete("/switches/{swId}", switchH.Delete)
 
-		// TODO Phase 2: Port operations
-		// r.Get("/switches/{swId}/ports", ...)
-		// r.Get("/switches/{swId}/ports/{port}", ...)
-		// r.Put("/switches/{swId}/ports/{port}/admin", ...)
-		// r.Put("/switches/{swId}/ports/{port}/speed", ...)
-		// r.Get("/switches/{swId}/ports/descriptions", ...)
+		// Port operations
+		r.Get("/switches/{swId}/ports", portH.ListPorts)
+		r.Get("/switches/{swId}/ports/descriptions", portH.GetDescriptions)
+		r.Get("/switches/{swId}/ports/{port}", portH.GetPort)
+		r.Put("/switches/{swId}/ports/{port}/admin", portH.SetPortAdmin)
+		// TODO Phase 2b: r.Put("/switches/{swId}/ports/{port}/speed", ...)
 
 		// TODO Phase 3: Network tools
 		// r.Post("/tools/ping", ...)
@@ -126,6 +159,14 @@ func main() {
 		// r.Get("/units/{unitId}/isolation", ...)
 		// r.Post("/units/{unitId}/isolation", ...)
 		// r.Delete("/units/{unitId}/isolation/{mac}", ...)
+
+		// MIB management
+		r.Post("/mibs/upload", mibH.Upload)
+		r.Get("/mibs/modules", mibH.ListModules)
+		r.Get("/mibs/lookup", mibH.LookupByName)
+		r.Get("/mibs/resolve", mibH.ResolveOID)
+		r.Get("/mibs/search", mibH.Search)
+		r.Delete("/mibs/modules", mibH.DeleteModule)
 
 		// TODO Phase 7: RSPAN
 		// r.Route("/rspan", func(r chi.Router) { ... })

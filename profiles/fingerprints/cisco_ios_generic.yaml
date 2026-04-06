@@ -1,0 +1,11 @@
+id: cisco_ios_generic
+vendor: cisco
+os: ios
+match:
+  sysobjectid_prefix:
+    - "1.3.6.1.4.1.9."
+  sysdescr_contains:
+    - "Cisco IOS"
+    - "Cisco Internetwork"
+    - "cisco"
+priority: 100
