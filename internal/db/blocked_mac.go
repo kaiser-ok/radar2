@@ -43,6 +43,18 @@ func (r *BlockedMACRepo) Block(unitID int64, mac string, switchID *int64, port *
 	return err
 }
 
+func (r *BlockedMACRepo) Find(unitID int64, mac string) (*model.BlockedMAC, error) {
+	var m model.BlockedMAC
+	err := r.db.QueryRow(
+		"SELECT id, unit_id, mac, switch_id, port, blocked_at FROM blocked_macs WHERE unit_id = ? AND mac = ?",
+		unitID, mac,
+	).Scan(&m.ID, &m.UnitID, &m.MAC, &m.SwitchID, &m.Port, &m.BlockedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
 func (r *BlockedMACRepo) Unblock(unitID int64, mac string) error {
 	_, err := r.db.Exec("DELETE FROM blocked_macs WHERE unit_id = ? AND mac = ?", unitID, mac)
 	return err

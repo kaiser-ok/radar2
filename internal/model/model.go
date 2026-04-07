@@ -78,6 +78,28 @@ type FDBEntry struct {
 	Status   string `json:"status,omitempty"`
 }
 
+type MACLocationResult struct {
+	MAC      string `json:"mac"`
+	SwitchID int64  `json:"switch_id"`
+	SwitchIP string `json:"switch_ip,omitempty"`
+	Port     int    `json:"port"`
+	PortName string `json:"port_name,omitempty"`
+	VLAN     int    `json:"vlan,omitempty"`
+	Cached   bool   `json:"cached"`
+}
+
+type ARPEntry struct {
+	IP  string `json:"ip"`
+	MAC string `json:"mac"`
+}
+
+type TopologyRebuildResult struct {
+	SwitchesScanned int      `json:"switches_scanned"`
+	MACsFound       int      `json:"macs_found"`
+	MACsUpdated     int      `json:"macs_updated"`
+	Errors          []string `json:"errors,omitempty"`
+}
+
 type TaskStatus string
 
 const (

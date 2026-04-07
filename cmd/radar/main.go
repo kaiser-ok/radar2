@@ -59,6 +59,8 @@ func main() {
 
 	// Repos
 	switchRepo := db.NewSwitchRepo(database)
+	macLocRepo := db.NewMACLocationRepo(database)
+	blockedMACRepo := db.NewBlockedMACRepo(database)
 
 	// SNMP
 	snmpClient := snmp.NewClient(cfg.SNMP.Timeout, cfg.SNMP.Retries, cfg.SNMP.MaxOIDsPerReq)
@@ -94,6 +96,7 @@ func main() {
 	taskStore := service.NewTaskStore()
 	taskStore.StartCleanupLoop(cfg.Task.CleanupInterval, cfg.Task.MaxAge)
 	execSvc := service.NewExecService(taskStore, 30*time.Second)
+	macSvc := service.NewMACService(snmpClient, oidRegistry, fdbSvc, portSvc, macLocRepo, blockedMACRepo, switchRepo)
 
 	// Handlers
 	systemH := handler.NewSystemHandler(cfg)
@@ -104,6 +107,7 @@ func main() {
 	swInfoH := handler.NewSwitchInfoHandler(poeSvc, infoSvc, switchRepo)
 	snmpH := handler.NewSNMPHandler(snmpClient)
 	discoveryH := handler.NewDiscoveryHandler(discoverySvc, fdbSvc, switchRepo)
+	macH := handler.NewMACHandler(macSvc)
 
 	// Onboarding service
 	onboardingSvc, err := onboarding.NewService(database, "onboarding")
@@ -166,19 +170,16 @@ func main() {
 		r.Post("/snmp/query", snmpH.Query)
 		r.Post("/snmp/discovery", discoveryH.Discover)
 
-		// TODO Phase 6: Topology
-		// r.Post("/units/{unitId}/topology/rebuild", ...)
-		// r.Get("/units/{unitId}/ports", ...)
+		// MAC Location + Resolution
+		r.Get("/units/{unitId}/mac/{mac}", macH.LocateMAC)
+		r.Get("/units/{unitId}/mac/{mac}/ip", macH.ResolveMACToIP)
+		r.Get("/units/{unitId}/ip/{ip}/mac", macH.ResolveIPToMAC)
+		r.Post("/units/{unitId}/topology/rebuild", macH.RebuildTopology)
 
-		// TODO Phase 6: MAC/IP
-		// r.Get("/units/{unitId}/mac/{mac}/location", ...)
-		// r.Post("/units/{unitId}/mac/refresh", ...)
-		// r.Get("/units/{unitId}/ip/{ip}/resolve", ...)
-
-		// TODO Phase 6: MAC isolation
-		// r.Get("/units/{unitId}/isolation", ...)
-		// r.Post("/units/{unitId}/isolation", ...)
-		// r.Delete("/units/{unitId}/isolation/{mac}", ...)
+		// MAC Isolation
+		r.Get("/units/{unitId}/blocked", macH.ListBlocked)
+		r.Post("/units/{unitId}/blocked", macH.BlockMAC)
+		r.Delete("/units/{unitId}/blocked/{mac}", macH.UnblockMAC)
 
 		// MIB management
 		r.Post("/mibs/upload", mibH.Upload)
