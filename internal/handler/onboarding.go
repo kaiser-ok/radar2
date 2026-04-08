@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"new_radar/internal/onboarding"
 	"new_radar/internal/service"
@@ -30,7 +31,11 @@ func (h *OnboardingHandler) CreateCase(w http.ResponseWriter, r *http.Request) {
 
 	c, err := h.svc.CreateCase(&req)
 	if err != nil {
-		Error(w, http.StatusInternalServerError, err.Error())
+		if strings.Contains(err.Error(), "already exists") {
+			Error(w, http.StatusConflict, err.Error())
+		} else {
+			Error(w, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
 	JSON(w, http.StatusCreated, c)

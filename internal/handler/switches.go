@@ -3,6 +3,7 @@ package handler
 import (
 	"database/sql"
 	"net/http"
+	"strings"
 
 	"new_radar/internal/db"
 	"new_radar/internal/model"
@@ -85,7 +86,13 @@ func (h *SwitchHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.switchRepo.Create(&req); err != nil {
-		Error(w, http.StatusInternalServerError, err.Error())
+		if strings.Contains(err.Error(), "UNIQUE") {
+			Error(w, http.StatusConflict, "switch with this IP already exists")
+		} else if strings.Contains(err.Error(), "FOREIGN KEY") {
+			Error(w, http.StatusBadRequest, "unit not found: create a unit first or check unitId")
+		} else {
+			Error(w, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
 	JSON(w, http.StatusCreated, req)
@@ -152,7 +159,11 @@ func (h *SwitchHandler) Update(w http.ResponseWriter, r *http.Request) {
 	existing.PoECapable = req.PoECapable
 
 	if err := h.switchRepo.Update(existing); err != nil {
-		Error(w, http.StatusInternalServerError, err.Error())
+		if strings.Contains(err.Error(), "UNIQUE") {
+			Error(w, http.StatusConflict, "another switch with this IP already exists")
+		} else {
+			Error(w, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
 	JSON(w, http.StatusOK, existing)

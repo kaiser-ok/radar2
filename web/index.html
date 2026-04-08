@@ -624,15 +624,19 @@ async function renderProfiles(c) {
 // --- Switches Page ---
 async function renderSwitches(c) {
   c.innerHTML = '<span class="spinner"></span> Loading...';
-  // Try unit 1 by default
   const r = await api('GET', '/units/1/switches');
-  let html = `<div class="card"><div class="card-header">Switches <button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="showAddSwitch()">Add Switch</button></div><div class="card-body">`;
+  const switches = r.ok ? (r.data.data || r.data || []) : [];
+  let html = `<div class="card"><div class="card-header">Switches (${switches.length}) <button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="showAddSwitch()">Add Switch</button></div><div class="card-body">`;
 
-  if (r.ok && Array.isArray(r.data) && r.data.length > 0) {
-    html += '<table><tr><th>ID</th><th>Name</th><th>IP</th><th>Community</th><th>Version</th><th>Actions</th></tr>';
-    for (const sw of r.data) {
-      html += `<tr><td>${sw.id}</td><td>${sw.name}</td><td>${sw.ip}</td><td>${sw.community}</td><td>${sw.snmp_version || 'v2c'}</td>
-        <td><button class="btn btn-sm btn-primary" onclick="viewSwitch(${sw.id})">Details</button></td></tr>`;
+  if (switches.length > 0) {
+    html += '<table><tr><th>ID</th><th>Name</th><th>IP</th><th>Community</th><th>SNMP</th><th>Access</th><th>SSH User</th><th>Actions</th></tr>';
+    for (const sw of switches) {
+      html += `<tr><td>${sw.id}</td><td>${sw.name || '-'}</td><td>${sw.ip}</td><td>${sw.community}</td><td>${sw.snmp_ver || 'v2c'}</td>
+        <td>${sw.access_method || 'snmp'}</td><td>${sw.ssh_user || '-'}</td>
+        <td>
+          <button class="btn btn-sm btn-primary" onclick="viewSwitch(${sw.id})">Details</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteSwitch(${sw.id})">Del</button>
+        </td></tr>`;
     }
     html += '</table>';
   } else {
@@ -640,6 +644,13 @@ async function renderSwitches(c) {
   }
   html += '</div></div><div id="add-switch-form" style="display:none"></div><div id="switch-detail"></div>';
   c.innerHTML = html;
+}
+
+async function deleteSwitch(id) {
+  if (!confirm('Delete switch #' + id + '?')) return;
+  const r = await api('DELETE', '/switches/' + id);
+  if (r.ok) { toast('Switch deleted'); renderSwitches(document.getElementById('content')); }
+  else toast('Failed: ' + JSON.stringify(r.data), 'error');
 }
 
 function showAddSwitch() {
@@ -734,7 +745,7 @@ async function runTool() {
   const el = document.getElementById('t-result');
   el.innerHTML = '<span class="spinner"></span> Running ' + tool + '...';
 
-  const body = tool === 'arping' || tool === 'dad-check' ? { ip: target } : { target };
+  const body = { host: target };
   const r = await api('POST', '/tools/' + tool, body);
   if (r.ok && r.data.task_id) {
     // Poll for result
@@ -793,10 +804,10 @@ const API_CATALOG = [
     { method: 'POST', path: '/api/v2/snmp/discovery', desc: 'Discovery', body: '{"subnet":"192.168.20.0/24","community":"public","version":"2c"}' },
   ]},
   { group: 'Tools', items: [
-    { method: 'POST', path: '/api/v2/tools/ping', desc: 'Ping', body: '{"target":"192.168.20.211"}' },
-    { method: 'POST', path: '/api/v2/tools/traceroute', desc: 'Traceroute', body: '{"target":"192.168.20.211"}' },
-    { method: 'POST', path: '/api/v2/tools/arping', desc: 'ARP ping', body: '{"ip":"192.168.20.211"}' },
-    { method: 'POST', path: '/api/v2/tools/dad-check', desc: 'DAD check', body: '{"ip":"192.168.20.211"}' },
+    { method: 'POST', path: '/api/v2/tools/ping', desc: 'Ping', body: '{"host":"192.168.20.211"}' },
+    { method: 'POST', path: '/api/v2/tools/traceroute', desc: 'Traceroute', body: '{"host":"192.168.20.211"}' },
+    { method: 'POST', path: '/api/v2/tools/arping', desc: 'ARP ping', body: '{"host":"192.168.20.211"}' },
+    { method: 'POST', path: '/api/v2/tools/dad-check', desc: 'DAD check', body: '{"host":"192.168.20.211"}' },
     { method: 'GET', path: '/api/v2/tools/tasks/{taskId}', desc: 'Get task result', params: ['taskId'] },
   ]},
   { group: 'MAC Location', items: [
@@ -859,6 +870,54 @@ function renderAPI(c) {
     <div style="margin-top:12px">
       <div style="font-size:12px;color:#64748b;margin-bottom:4px">Response <span id="api-status"></span></div>
       <div class="api-response" id="api-response">Select an API from the dropdown above, then click Send</div>
+    </div>
+  </div></div>
+
+  <div class="card"><div class="card-header">v1 Legacy → v2 API Mapping <span style="font-size:11px;color:#64748b;font-weight:400;margin-left:8px">radar_API.md reference</span></div><div class="card-body" style="overflow-x:auto">
+    <table>
+      <tr><th>#</th><th>Category</th><th>v1 Legacy (beverage_go)</th><th>v2 New (radar)</th><th>Status</th></tr>
+      <tr><td>1</td><td>Ping</td><td><code>POST /exec_tool/ping</code></td><td><code>POST /api/v2/tools/ping</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>2</td><td>Ping</td><td><code>GET /exec_tool/result?task_id=</code></td><td><code>GET /api/v2/tools/tasks/{taskId}</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>3</td><td>Traceroute</td><td><code>POST /exec_tool/traceroute</code></td><td><code>POST /api/v2/tools/traceroute</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>4</td><td>Port Control</td><td><code>GET /beverage_go/api?args=set_port&args={swId}&args={on|off}&args={port}</code></td><td><code>PUT /api/v2/switches/{swId}/ports/{port}/admin</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>5</td><td>Port Status</td><td><code>GET /beverage_go/api?args=port_status&args={swId}</code></td><td><code>GET /api/v2/switches/{swId}/ports</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>6</td><td>Port Status</td><td><code>GET /beverage_go/api?args=admin_port_status&args={swId}</code></td><td><code>GET /api/v2/switches/{swId}/ports</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>7</td><td>Port Info</td><td><code>GET /sw_table/input?u_id={unitId}</code></td><td><code>GET /api/v2/units/{unitId}/switches</code> + per-switch ports</td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>8</td><td>Port Desc</td><td><code>GET /sw_port_description?id={swId}</code></td><td><code>GET /api/v2/switches/{swId}/ports/descriptions</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>9</td><td>PoE</td><td><code>GET /beverage_go/api?args=poestate&args={enable|disable}&args={swId}&args={port}</code></td><td><code>PUT /api/v2/switches/{swId}/poe/{port}</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>10</td><td>PoE</td><td><code>GET /beverage_go/api?args=poe_report&args={swId}&args=list</code></td><td><code>GET /api/v2/switches/{swId}/poe/report</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>11</td><td>PoE</td><td><code>GET /beverage_go/api?args=poe_support&args={swId}</code></td><td><code>GET /api/v2/switches/{swId}/poe</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>12</td><td>MAC Location</td><td><code>GET /location?u_id={unitId}&mac={mac}</code></td><td><code>GET /api/v2/units/{unitId}/mac/{mac}</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>13</td><td>MAC Location</td><td><code>GET /location/all?unit_id={unitId}</code></td><td><code>POST /api/v2/units/{unitId}/topology/rebuild</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>14</td><td>IP-MAC</td><td><code>GET /rtmi/ip?unit_id={unitId}&ip={ip}</code></td><td><code>GET /api/v2/units/{unitId}/ip/{ip}/mac</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>15</td><td>MAC Isolation</td><td><code>GET /isolator?unit_id={unitId}</code></td><td><code>GET /api/v2/units/{unitId}/blocked</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>16</td><td>MAC Isolation</td><td><code>POST /isolator</code></td><td><code>POST /api/v2/units/{unitId}/blocked</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>17</td><td>MAC Isolation</td><td><code>DELETE /isolator</code></td><td><code>DELETE /api/v2/units/{unitId}/blocked/{mac}</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>18</td><td>Switch Info</td><td><code>GET /beverage_go/api?args=cpu_util&args={swId}</code></td><td><code>GET /api/v2/switches/{swId}/cpu</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>19</td><td>Switch Info</td><td><code>GET /beverage_go/api?args=switch_info&args={swId}&args=stat</code></td><td><code>GET /api/v2/switches/{swId}/stats</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>20</td><td>Switch Info</td><td><code>GET /beverage_go/api?args=vlan_report&args={swId}</code></td><td><code>GET /api/v2/switches/{swId}/vlans</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>21</td><td>SNMP</td><td><code>GET /snmp_test?ip=&community=&snmp_ver=</code></td><td><code>POST /api/v2/snmp/test</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>22</td><td>SNMP</td><td><code>GET /snmp_test?...&oid=&output=1</code></td><td><code>POST /api/v2/snmp/query</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>23</td><td>Discovery</td><td><code>GET /beverage_go/api?args=discovery&args={subnet}&args={community}</code></td><td><code>POST /api/v2/snmp/discovery</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>24</td><td>Status</td><td><code>GET /version</code></td><td><code>GET /api/v2/version</code></td><td><span class="status status-approved">done</span></td></tr>
+      <tr><td>25</td><td>Status</td><td><code>GET /interface</code></td><td><code>GET /api/v2/interfaces</code></td><td><span class="status status-approved">done</span></td></tr>
+    </table>
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid #334155">
+      <div style="font-size:12px;color:#64748b;margin-bottom:8px">New in v2 (not in v1)</div>
+      <table>
+        <tr><th>Category</th><th>Endpoint</th><th>Description</th><th>Status</th></tr>
+        <tr><td>Switches</td><td><code>CRUD /api/v2/units/{unitId}/switches</code></td><td>Switch management (add/edit/delete)</td><td><span class="status status-approved">done</span></td></tr>
+        <tr><td>FDB</td><td><code>GET /api/v2/switches/{swId}/fdb</code></td><td>Forwarding database query</td><td><span class="status status-approved">done</span></td></tr>
+        <tr><td>MAC→IP</td><td><code>GET /api/v2/units/{unitId}/mac/{mac}/ip</code></td><td>MAC to IP resolution</td><td><span class="status status-approved">done</span></td></tr>
+        <tr><td>ARP Ping</td><td><code>POST /api/v2/tools/arping</code></td><td>ARP-level ping</td><td><span class="status status-approved">done</span></td></tr>
+        <tr><td>DAD Check</td><td><code>POST /api/v2/tools/dad-check</code></td><td>Duplicate address detection</td><td><span class="status status-approved">done</span></td></tr>
+        <tr><td>SSH</td><td><code>POST /api/v2/switches/{swId}/ssh/test</code></td><td>Test SSH connectivity</td><td><span class="status status-draft">2b</span></td></tr>
+        <tr><td>SSH</td><td><code>POST /api/v2/switches/{swId}/ssh/exec</code></td><td>Execute CLI commands</td><td><span class="status status-draft">2b</span></td></tr>
+        <tr><td>Reboot</td><td><code>POST /api/v2/switches/{swId}/reboot</code></td><td>Reboot via profile chain</td><td><span class="status status-draft">2b</span></td></tr>
+        <tr><td>MIB</td><td><code>/api/v2/mibs/*</code></td><td>MIB upload, lookup, resolve, search</td><td><span class="status status-approved">done</span></td></tr>
+        <tr><td>Onboarding</td><td><code>/api/v2/onboarding/*</code></td><td>Device enrollment SOP workflow</td><td><span class="status status-approved">done</span></td></tr>
+        <tr><td>Profiles</td><td><code>GET /api/v2/profiles</code></td><td>4-layer profile architecture</td><td><span class="status status-approved">done</span></td></tr>
+      </table>
     </div>
   </div></div>`;
 }

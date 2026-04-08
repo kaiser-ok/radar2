@@ -28,6 +28,19 @@ func NewExecutor(snmpClient *snmp.Client, profiles *config.ProfileRegistry) *Exe
 	}
 }
 
+// SNMPClient returns the SNMP client for direct queries.
+func (e *Executor) SNMPClient() *snmp.Client {
+	return e.snmpClient
+}
+
+// DetectProfile detects a device profile from sysObjectID and sysDescr.
+func (e *Executor) DetectProfile(sysOID, sysDescr string) *config.DeviceProfile {
+	if e.profiles == nil {
+		return nil
+	}
+	return e.profiles.DetectDevice(sysOID, sysDescr)
+}
+
 // ExecResult contains the result of executing a capability.
 type ExecResult struct {
 	Method  string      `json:"method"`  // "snmp" or "ssh"
