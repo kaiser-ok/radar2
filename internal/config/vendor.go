@@ -269,10 +269,13 @@ func (r *ProfileRegistry) GetProfileByID(id string) *DeviceProfile {
 }
 
 func matchFingerprint(fp *Fingerprint, sysObjectID, sysDescr string) bool {
+	// Normalize: strip leading dot from sysObjectID
+	normalizedOID := strings.TrimPrefix(sysObjectID, ".")
+
 	// Check sysObjectID prefix
 	oidMatch := len(fp.sysOIDMatchers) == 0 // if no matchers, pass
 	for _, prefix := range fp.sysOIDMatchers {
-		if strings.HasPrefix(sysObjectID, prefix) {
+		if strings.HasPrefix(normalizedOID, prefix) || strings.HasPrefix(sysObjectID, prefix) {
 			oidMatch = true
 			break
 		}
