@@ -1,7 +1,7 @@
 server:
   port: 8082
   read_timeout: 15s
-  write_timeout: 60s
+  write_timeout: 300s
 
 auth:
   username: "admin"
@@ -11,8 +11,8 @@ database:
   path: "./radar.db"
 
 snmp:
-  timeout: 5s
-  retries: 1
+  timeout: 10s
+  retries: 2
   max_oids_per_request: 20
   oid_file: "./configs/oids.yaml"
 

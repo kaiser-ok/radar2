@@ -1,0 +1,15 @@
+vendor: mikrotik
+model: RB450G
+firmware: 7.22.1
+customer: lab
+required_features:
+    - system.read
+    - interfaces.read
+    - port.admin.read
+    - port.oper.read
+    - port.traffic.read
+    - mac_table.read
+    - vlan.read
+support_tier: B
+urgency: normal
+owner: kaiser

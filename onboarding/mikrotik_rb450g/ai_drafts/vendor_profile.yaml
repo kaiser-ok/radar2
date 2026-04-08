@@ -1,0 +1,49 @@
+id: mikrotik_rb450g
+mappings:
+    interfaces.read:
+        _confidence: high
+        _evidence: 'ifIndex: 77 entries; ifDescr: 28 entries; ifAdminStatus: 7 entries; ifOperStatus: 7 entries'
+        primary:
+            method: snmp
+            table: .1.3.6.1.2.1.2.2.1.1
+    mac_table.read:
+        _confidence: high
+        _evidence: 'dot1dTpFdb (bridge MIB): 6 entries; dot1qTpFdb (Q-BRIDGE): 6 entries'
+        primary:
+            method: snmp
+            table: .1.3.6.1.2.1.17.4.3.1
+    port.admin.read:
+        _confidence: high
+        _evidence: 'ifAdminStatus: 7 entries'
+        primary:
+            method: snmp
+            oid_template: .1.3.6.1.2.1.2.2.1.7.{ifIndex}
+    port.admin.write:
+        _confidence: low
+        _evidence: 'ifAdminStatus (SET not tested from walk): 7 entries; NOTE: write capability inferred from OID presence, SET not tested'
+        primary:
+            method: snmp
+            oid_template: .1.3.6.1.2.1.2.2.1.7.{ifIndex}
+    port.oper.read:
+        _confidence: high
+        _evidence: 'ifOperStatus: 7 entries'
+        primary:
+            method: snmp
+            oid_template: .1.3.6.1.2.1.2.2.1.8.{ifIndex}
+    port.traffic.read:
+        _confidence: high
+        _evidence: 'ifInOctets: 7 entries; ifOutOctets: 7 entries'
+        primary:
+            method: snmp
+            table: .1.3.6.1.2.1.2.2.1.10
+    system.read:
+        _confidence: high
+        _evidence: 'sysDescr: 1 entries; sysObjectID: 1 entries; sysUpTime: 1 entries; sysName: 1 entries'
+        primary:
+            method: snmp
+            table: .1.3.6.1.2.1.1.1
+protocols:
+    snmp:
+        version: v2c
+    ssh:
+        enabled: true

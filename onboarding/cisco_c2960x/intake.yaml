@@ -1,0 +1,18 @@
+vendor: cisco
+model: C2960X
+firmware: 15.2(2)E5
+customer: lab
+required_features:
+    - port.admin.read
+    - port.admin.write
+    - port.oper.read
+    - port.traffic.read
+    - poe.status.read
+    - poe.control.write
+    - mac_table.read
+    - vlan.read
+    - system.read
+    - interfaces.read
+support_tier: A
+urgency: normal
+owner: kaiser

@@ -1,0 +1,102 @@
+{
+  "sys_descr": "Cisco IOS Software, C2960X Software (C2960X-UNIVERSALK9-M), Version 15.2(2)E5, RELEASE SOFTWARE (fc2)",
+  "sys_object_id": ".1.3.6.1.4.1.9.1.1208",
+  "sys_name": "Gentrice-2960X.local.lab",
+  "port_count": 59,
+  "capabilities": [
+    {
+      "capability": "mac_table.read",
+      "supported": false,
+      "confidence": "high",
+      "evidence": "dot1dTpFdb (bridge MIB): not found; dot1qTpFdb (Q-BRIDGE): not found"
+    },
+    {
+      "capability": "vlan.read",
+      "supported": false,
+      "confidence": "high",
+      "evidence": "dot1qVlanStatic: not found; dot1qVlanCurrent: not found"
+    },
+    {
+      "capability": "poe.status.read",
+      "supported": true,
+      "confidence": "high",
+      "evidence": "pethPsePort: 1152 entries; pethMainPse: 8 entries",
+      "oids_found": [
+        ".1.3.6.1.2.1.105.1.1.1",
+        ".1.3.6.1.2.1.105.1.3.1"
+      ]
+    },
+    {
+      "capability": "system.read",
+      "supported": true,
+      "confidence": "high",
+      "evidence": "sysDescr: 1 entries; sysObjectID: 1 entries; sysUpTime: 1 entries; sysName: 1 entries",
+      "oids_found": [
+        ".1.3.6.1.2.1.1.1",
+        ".1.3.6.1.2.1.1.2",
+        ".1.3.6.1.2.1.1.3",
+        ".1.3.6.1.2.1.1.5"
+      ]
+    },
+    {
+      "capability": "port.admin.read",
+      "supported": true,
+      "confidence": "high",
+      "evidence": "ifAdminStatus: 59 entries",
+      "oids_found": [
+        ".1.3.6.1.2.1.2.2.1.7"
+      ]
+    },
+    {
+      "capability": "port.admin.write",
+      "supported": true,
+      "confidence": "low",
+      "evidence": "ifAdminStatus (SET not tested from walk): 59 entries; NOTE: write capability inferred from OID presence, SET not tested",
+      "oids_found": [
+        ".1.3.6.1.2.1.2.2.1.7"
+      ]
+    },
+    {
+      "capability": "port.oper.read",
+      "supported": true,
+      "confidence": "high",
+      "evidence": "ifOperStatus: 59 entries",
+      "oids_found": [
+        ".1.3.6.1.2.1.2.2.1.8"
+      ]
+    },
+    {
+      "capability": "port.traffic.read",
+      "supported": true,
+      "confidence": "high",
+      "evidence": "ifInOctets: 57 entries; ifOutOctets: 57 entries",
+      "oids_found": [
+        ".1.3.6.1.2.1.2.2.1.10",
+        ".1.3.6.1.2.1.2.2.1.16"
+      ]
+    },
+    {
+      "capability": "poe.control.write",
+      "supported": true,
+      "confidence": "low",
+      "evidence": "pethPsePortAdminEnable (SET not tested): 96 entries; NOTE: write capability inferred from OID presence, SET not tested",
+      "oids_found": [
+        ".1.3.6.1.2.1.105.1.1.1.3"
+      ]
+    },
+    {
+      "capability": "interfaces.read",
+      "supported": true,
+      "confidence": "high",
+      "evidence": "ifIndex: 515 entries; ifDescr: 116 entries; ifAdminStatus: 59 entries; ifOperStatus: 59 entries",
+      "oids_found": [
+        ".1.3.6.1.2.1.2.2.1.1",
+        ".1.3.6.1.2.1.2.2.1.2",
+        ".1.3.6.1.2.1.2.2.1.7",
+        ".1.3.6.1.2.1.2.2.1.8"
+      ]
+    }
+  ],
+  "vendor_tree": ".1.3.6.1.4.1.9",
+  "summary": "Device: Cisco IOS Software, C2960X Software (C2960X-UNIVERSALK9-M), Version 15.2(2)E5, RELEASE SOFTWARE (fc2) (.1.3.6.1.4.1.9.1.1208), 59 ports, 8/10 capabilities detected"
+}

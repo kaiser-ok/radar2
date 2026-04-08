@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Radar v2 - Network Device Management</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; }
+
+  /* Layout */
+  .app { display: flex; height: 100vh; }
+  .sidebar { width: 240px; background: #1e293b; border-right: 1px solid #334155; display: flex; flex-direction: column; }
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Sidebar */
+  .logo { padding: 20px; font-size: 18px; font-weight: 700; color: #38bdf8; border-bottom: 1px solid #334155; }
+  .logo span { color: #64748b; font-weight: 400; font-size: 12px; }
+  .nav { flex: 1; padding: 12px; overflow-y: auto; }
+  .nav-section { color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; padding: 12px 8px 6px; }
+  .nav-item { display: block; width: 100%; text-align: left; background: none; border: none; color: #94a3b8; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .nav-item:hover { background: #334155; color: #e2e8f0; }
+  .nav-item.active { background: #0ea5e9; color: white; }
+
+  /* Header */
+  .header { padding: 16px 24px; border-bottom: 1px solid #334155; display: flex; align-items: center; gap: 16px; }
+  .header h2 { flex: 1; font-size: 18px; }
+  .badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge-green { background: #065f46; color: #6ee7b7; }
+  .badge-yellow { background: #713f12; color: #fde047; }
+  .badge-red { background: #7f1d1d; color: #fca5a5; }
+  .badge-blue { background: #1e3a5f; color: #7dd3fc; }
+
+  /* Content */
+  .content { flex: 1; overflow-y: auto; padding: 24px; }
+
+  /* Cards */
+  .card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; margin-bottom: 16px; }
+  .card-header { padding: 16px; border-bottom: 1px solid #334155; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+  .card-body { padding: 16px; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 8px 12px; font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #334155; }
+  td { padding: 10px 12px; border-bottom: 1px solid #1e293b; font-size: 13px; }
+  tr:hover td { background: #1e293b; }
+
+  /* Buttons */
+  .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; }
+  .btn-primary { background: #0ea5e9; color: white; }
+  .btn-primary:hover { background: #0284c7; }
+  .btn-success { background: #059669; color: white; }
+  .btn-success:hover { background: #047857; }
+  .btn-danger { background: #dc2626; color: white; }
+  .btn-danger:hover { background: #b91c1c; }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Forms */
+  .form-group { margin-bottom: 12px; }
+  .form-group label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 4px; }
+  .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 8px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #e2e8f0; font-size: 13px; }
+  .form-group input:focus, .form-group select:focus { outline: none; border-color: #0ea5e9; }
+  .form-row { display: flex; gap: 12px; }
+  .form-row .form-group { flex: 1; }
+
+  /* Status badges */
+  .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .status-intake { background: #334155; color: #94a3b8; }
+  .status-evidence { background: #713f12; color: #fde047; }
+  .status-analyzing { background: #1e3a5f; color: #7dd3fc; }
+  .status-draft { background: #3b0764; color: #d8b4fe; }
+  .status-approved { background: #065f46; color: #6ee7b7; }
+
+  /* Capability matrix */
+  .cap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+  .cap-item { padding: 10px; border-radius: 6px; border: 1px solid #334155; display: flex; align-items: center; gap: 8px; }
+  .cap-item.supported { border-color: #065f46; background: #022c22; }
+  .cap-item.unsupported { border-color: #7f1d1d; background: #1c0a0a; }
+  .cap-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .cap-dot.on { background: #6ee7b7; }
+  .cap-dot.off { background: #fca5a5; }
+  .cap-name { font-size: 13px; flex: 1; }
+  .cap-conf { font-size: 11px; color: #64748b; }
+
+  /* JSON viewer */
+  .json-view { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 12px; font-family: 'SF Mono', Menlo, monospace; font-size: 12px; overflow-x: auto; white-space: pre-wrap; max-height: 400px; overflow-y: auto; }
+
+  /* API tester */
+  .api-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .api-method { width: 100px; }
+  .api-url { flex: 1; }
+  .api-response { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; min-height: 200px; max-height: 500px; overflow: auto; white-space: pre-wrap; }
+
+  /* Loading */
+  .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #334155; border-top: 2px solid #0ea5e9; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid #334155; padding: 0 16px; }
+  .tab { padding: 10px 16px; cursor: pointer; font-size: 13px; color: #64748b; border-bottom: 2px solid transparent; }
+  .tab:hover { color: #e2e8f0; }
+  .tab.active { color: #0ea5e9; border-bottom-color: #0ea5e9; }
+
+  /* Tooltip */
+  .info-icon { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: #334155; color: #94a3b8; font-size: 11px; font-weight: 700; cursor: help; position: relative; font-style: normal; }
+  .info-icon:hover { background: #0ea5e9; color: white; }
+  .info-icon .tooltip { display: none; position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1e293b; border: 1px solid #475569; border-radius: 8px; padding: 12px; width: 280px; font-size: 12px; font-weight: 400; color: #e2e8f0; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.4); line-height: 1.5; }
+  .info-icon:hover .tooltip { display: block; }
+  .tooltip-row { display: flex; gap: 8px; margin-bottom: 6px; }
+  .tooltip-row:last-child { margin-bottom: 0; }
+  .tooltip-tier { font-weight: 700; min-width: 20px; }
+  .tooltip-tier-a { color: #6ee7b7; }
+  .tooltip-tier-b { color: #7dd3fc; }
+  .tooltip-tier-c { color: #fde047; }
+
+  /* Toast */
+  .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; font-size: 13px; z-index: 1000; animation: slideIn 0.3s ease; }
+  .toast-success { background: #065f46; color: #6ee7b7; }
+  .toast-error { background: #7f1d1d; color: #fca5a5; }
+  @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  /* Enroll wizard */
+  .wizard-steps { display: flex; gap: 4px; margin-bottom: 24px; }
+  .wizard-step { flex: 1; text-align: center; padding: 10px; border-radius: 6px; font-size: 12px; background: #334155; color: #64748b; }
+  .wizard-step.active { background: #0ea5e9; color: white; }
+  .wizard-step.done { background: #065f46; color: #6ee7b7; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="logo">Radar v2 <span>Network Mgmt</span></div>
+    <div class="nav">
+      <div class="nav-section">Onboarding</div>
+      <button class="nav-item active" onclick="showPage('enroll')">Enroll Device</button>
+      <button class="nav-item" onclick="showPage('devices')">Enrolled Devices</button>
+
+      <div class="nav-section">Profiles</div>
+      <button class="nav-item" onclick="showPage('profiles')">4-Layer Architecture</button>
+
+      <div class="nav-section">Operations</div>
+      <button class="nav-item" onclick="showPage('switches')">Switches</button>
+      <button class="nav-item" onclick="showPage('discovery')">Discovery</button>
+      <button class="nav-item" onclick="showPage('tools')">Network Tools</button>
+
+      <div class="nav-section">Debug</div>
+      <button class="nav-item" onclick="showPage('api')">API Tester</button>
+      <button class="nav-item" onclick="showPage('snmp')">SNMP Query</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="header">
+      <h2 id="page-title">Enroll Device</h2>
+      <span id="server-status" class="badge badge-yellow">checking...</span>
+    </div>
+
+    <div class="content" id="content">
+      <!-- Pages rendered here -->
+    </div>
+  </div>
+</div>
+
+<script>
+const BASE = '';
+const AUTH = 'Basic ' + btoa('admin:gentrice');
+
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Authorization': AUTH, 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(BASE + '/api/v2' + path, opts);
+  const text = await res.text();
+  try { return { ok: res.ok, status: res.status, data: JSON.parse(text) }; }
+  catch { return { ok: res.ok, status: res.status, data: text }; }
+}
+
+function toast(msg, type='success') {
+  const el = document.createElement('div');
+  el.className = 'toast toast-' + type;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// --- Pages ---
+let currentPage = 'enroll';
+let enrollState = {};
+
+function showPage(page) {
+  currentPage = page;
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  event.target.classList.add('active');
+  const titles = { enroll: 'Enroll Device', devices: 'Enrolled Devices', profiles: '4-Layer Profile Architecture', switches: 'Switches', discovery: 'Discovery', tools: 'Network Tools', api: 'API Tester', snmp: 'SNMP Query' };
+  document.getElementById('page-title').textContent = titles[page] || page;
+  renderPage();
+}
+
+function renderPage() {
+  const c = document.getElementById('content');
+  switch(currentPage) {
+    case 'enroll': renderEnroll(c); break;
+    case 'devices': renderDevices(c); break;
+    case 'profiles': renderProfiles(c); break;
+    case 'switches': renderSwitches(c); break;
+    case 'discovery': renderDiscovery(c); break;
+    case 'tools': renderTools(c); break;
+    case 'api': renderAPI(c); break;
+    case 'snmp': renderSNMP(c); break;
+  }
+}
+
+// --- Enroll Page ---
+function renderEnroll(c) {
+  c.innerHTML = `
+    <div class="wizard-steps">
+      <div class="wizard-step active" id="ws-1">1. SNMP Test</div>
+      <div class="wizard-step" id="ws-2">2. Create Case</div>
+      <div class="wizard-step" id="ws-3">3. Collect Evidence</div>
+      <div class="wizard-step" id="ws-4">4. Analyze</div>
+      <div class="wizard-step" id="ws-5">5. Review & Approve</div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Step 1: Test SNMP Connectivity</div>
+      <div class="card-body">
+        <div class="form-row">
+          <div class="form-group"><label>IP Address</label><input id="e-ip" value="" placeholder="192.168.1.1"></div>
+          <div class="form-group"><label>Community</label><input id="e-community" value="public"></div>
+          <div class="form-group"><label>SNMP Version</label>
+            <select id="e-version"><option value="2c">v2c</option><option value="1">v1</option></select>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="enrollTest()">Test Connection</button>
+        <div id="e-test-result" style="margin-top:12px"></div>
+      </div>
+    </div>
+
+    <div class="card" id="e-step2" style="display:none">
+      <div class="card-header">Step 2: Case Details</div>
+      <div class="card-body">
+        <div class="form-row">
+          <div class="form-group"><label>Vendor</label><input id="e-vendor" placeholder="auto-detected"></div>
+          <div class="form-group"><label>Model</label><input id="e-model" placeholder="auto-detected"></div>
+          <div class="form-group"><label>Firmware</label><input id="e-firmware" placeholder="auto-detected"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Support Tier <i class="info-icon">i<span class="tooltip">
+            <div class="tooltip-row"><span class="tooltip-tier tooltip-tier-a">A</span><span>Full Support &mdash; read + write: port control, PoE, VLANs, MAC table, mirroring</span></div>
+            <div class="tooltip-row"><span class="tooltip-tier tooltip-tier-b">B</span><span>Read Only &mdash; system, interfaces, port status, MAC table, VLANs</span></div>
+            <div class="tooltip-row"><span class="tooltip-tier tooltip-tier-c">C</span><span>Best Effort &mdash; system info and interfaces only</span></div>
+          </span></i></label>
+            <select id="e-tier"><option value="A">A - Full Support</option><option value="B" selected>B - Read Only</option><option value="C">C - Best Effort</option></select>
+          </div>
+          <div class="form-group"><label>Customer</label><input id="e-customer" value="lab"></div>
+          <div class="form-group"><label>Owner</label><input id="e-owner" value="kaiser"></div>
+        </div>
+        <button class="btn btn-primary" onclick="enrollCreate()">Create Case & Start Enrollment</button>
+      </div>
+    </div>
+
+    <div class="card" id="e-step3" style="display:none">
+      <div class="card-header">Step 3: Auto-Collecting SNMP Evidence <span class="spinner" id="e-collect-spin"></span></div>
+      <div class="card-body" id="e-collect-result"></div>
+    </div>
+
+    <div class="card" id="e-step4" style="display:none">
+      <div class="card-header">Step 4: Analysis Results</div>
+      <div class="card-body" id="e-analysis-result"></div>
+    </div>
+
+    <div class="card" id="e-step5" style="display:none">
+      <div class="card-header">Step 5: Review & Approve</div>
+      <div class="card-body" id="e-approve-area"></div>
+    </div>
+  `;
+}
+
+async function enrollTest() {
+  const ip = document.getElementById('e-ip').value;
+  const community = document.getElementById('e-community').value;
+  const version = document.getElementById('e-version').value;
+  const el = document.getElementById('e-test-result');
+  el.innerHTML = '<span class="spinner"></span> Testing...';
+
+  const r = await api('POST', '/snmp/test', { ip, community, version });
+  if (r.ok && r.data.success) {
+    const info = r.data.info;
+    enrollState.testInfo = info;
+    enrollState.ip = ip;
+    enrollState.community = community;
+    enrollState.version = version;
+
+    el.innerHTML = `<div style="color:#6ee7b7">Connected successfully</div>
+      <div class="json-view" style="margin-top:8px">${JSON.stringify(info, null, 2)}</div>`;
+
+    // Auto-fill step 2
+    document.getElementById('e-step2').style.display = '';
+    document.getElementById('ws-1').className = 'wizard-step done';
+    document.getElementById('ws-2').className = 'wizard-step active';
+
+    // Try to detect vendor/model from sysDescr
+    const desc = info.sysDescr || '';
+    if (desc.toLowerCase().includes('cisco')) {
+      document.getElementById('e-vendor').value = 'cisco';
+      const m = desc.match(/C(\d+\w*)/i) || desc.match(/Software[^,]*\((\S+?)-/i);
+      if (m) document.getElementById('e-model').value = m[1];
+    } else if (desc.toLowerCase().includes('routeros') || desc.toLowerCase().includes('mikrotik')) {
+      document.getElementById('e-vendor').value = 'mikrotik';
+      const m = desc.match(/RouterOS\s+(\S+)/i);
+      if (m) document.getElementById('e-model').value = m[1];
+    } else if (desc.toLowerCase().includes('d-link') || desc.toLowerCase().includes('dlink')) {
+      document.getElementById('e-vendor').value = 'dlink';
+    } else if (desc.toLowerCase().includes('zyxel')) {
+      document.getElementById('e-vendor').value = 'zyxel';
+    } else if (desc.toLowerCase().includes('aruba') || desc.toLowerCase().includes('procurve')) {
+      document.getElementById('e-vendor').value = 'hp';
+    }
+
+    // Extract firmware
+    const fw = desc.match(/Version\s+(\S+)/i) || desc.match(/(\d+\.\d+\.\d+)/);
+    if (fw) document.getElementById('e-firmware').value = fw[1].replace(/,$/,'');
+  } else {
+    el.innerHTML = `<div style="color:#fca5a5">Connection failed: ${JSON.stringify(r.data)}</div>`;
+  }
+}
+
+async function enrollCreate() {
+  const vendor = document.getElementById('e-vendor').value;
+  const model = document.getElementById('e-model').value;
+  const firmware = document.getElementById('e-firmware').value;
+  const tier = document.getElementById('e-tier').value;
+  const customer = document.getElementById('e-customer').value;
+  const owner = document.getElementById('e-owner').value;
+
+  if (!vendor || !model) { toast('Vendor and model required', 'error'); return; }
+
+  // Step 1: Create case
+  const r1 = await api('POST', '/onboarding', { vendor, model, firmware, customer, support_tier: tier, owner });
+  if (!r1.ok) { toast('Create failed: ' + JSON.stringify(r1.data), 'error'); return; }
+
+  const caseId = r1.data.id;
+  enrollState.caseId = caseId;
+  toast('Case #' + caseId + ' created');
+
+  // Step 2: Submit fingerprint
+  const info = enrollState.testInfo;
+  await api('POST', '/onboarding/' + caseId + '/fingerprint', {
+    sys_object_id: info.sysObjectID,
+    sys_descr: info.sysDescr,
+    sys_name: info.sysName,
+    snmp_version: enrollState.version,
+    community: enrollState.community,
+    ip: enrollState.ip
+  });
+
+  document.getElementById('ws-2').className = 'wizard-step done';
+  document.getElementById('ws-3').className = 'wizard-step active';
+  document.getElementById('e-step3').style.display = '';
+
+  // Step 3: Auto-collect (async)
+  document.getElementById('e-collect-result').innerHTML = '<span class="spinner"></span> Walking SNMP trees (standard, bridge, PoE, vendor)... this may take several minutes for large devices.';
+
+  const r3 = await api('POST', '/onboarding/' + caseId + '/collect');
+  if (!r3.ok) {
+    document.getElementById('e-collect-result').innerHTML = `<div style="color:#fca5a5">Collect failed: ${JSON.stringify(r3.data)}</div>`;
+    document.getElementById('e-collect-spin').style.display = 'none';
+    return;
+  }
+
+  const collectTaskId = r3.data.task_id;
+  document.getElementById('e-collect-result').innerHTML = `<span class="spinner"></span> Walking SNMP trees... Task: ${collectTaskId}`;
+
+  // Poll for collect completion
+  const collectResult = await pollTask(collectTaskId);
+  document.getElementById('e-collect-spin').style.display = 'none';
+
+  if (collectResult.error) {
+    document.getElementById('e-collect-result').innerHTML = `<div style="color:#fca5a5">Collect failed: ${collectResult.error}</div>`;
+    return;
+  }
+
+  const collectData = collectResult.data;
+  let collectHtml = `<div style="color:#6ee7b7;margin-bottom:12px">Collected ${collectData.total_entries} total OID entries</div><table><tr><th>Walk</th><th>OID Root</th><th>Entries</th><th>File</th></tr>`;
+  for (const w of collectData.walks) {
+    collectHtml += `<tr><td>${w.name}</td><td><code>${w.oid_root}</code></td><td>${w.entries}</td><td>${w.file}</td></tr>`;
+  }
+  collectHtml += '</table>';
+  document.getElementById('e-collect-result').innerHTML = collectHtml;
+
+  document.getElementById('ws-3').className = 'wizard-step done';
+  document.getElementById('ws-4').className = 'wizard-step active';
+  document.getElementById('e-step4').style.display = '';
+
+  // Step 4: Analyze
+  document.getElementById('e-analysis-result').innerHTML = '<span class="spinner"></span> Analyzing evidence...';
+  const r4 = await api('POST', '/onboarding/' + caseId + '/analyze');
+
+  if (r4.ok) {
+    const report = r4.data;
+    let html = `<div style="margin-bottom:16px"><strong>${report.summary}</strong></div>`;
+    html += '<div class="cap-grid">';
+    for (const cap of report.capabilities) {
+      const cls = cap.supported ? 'supported' : 'unsupported';
+      const dot = cap.supported ? 'on' : 'off';
+      html += `<div class="cap-item ${cls}"><div class="cap-dot ${dot}"></div><span class="cap-name">${cap.capability}</span><span class="cap-conf">${cap.confidence}</span></div>`;
+    }
+    html += '</div>';
+    document.getElementById('e-analysis-result').innerHTML = html;
+  } else {
+    document.getElementById('e-analysis-result').innerHTML = `<div style="color:#fca5a5">Analysis failed: ${JSON.stringify(r4.data)}</div>`;
+    return;
+  }
+
+  document.getElementById('ws-4').className = 'wizard-step done';
+  document.getElementById('ws-5').className = 'wizard-step active';
+  document.getElementById('e-step5').style.display = '';
+  document.getElementById('e-approve-area').innerHTML = `
+    <p style="margin-bottom:12px">Review the capabilities above. Click Approve to deploy profiles to production.</p>
+    <button class="btn btn-success" onclick="enrollApprove(${caseId})">Approve & Deploy Profiles</button>
+    <button class="btn btn-danger" style="margin-left:8px" onclick="toast('Case kept in draft status')">Reject</button>
+  `;
+}
+
+async function enrollApprove(caseId) {
+  const r = await api('POST', '/onboarding/' + caseId + '/approve');
+  if (r.ok) {
+    document.getElementById('ws-5').className = 'wizard-step done';
+    document.getElementById('e-approve-area').innerHTML = '<div style="color:#6ee7b7;font-size:16px">Profiles deployed to production successfully!</div>';
+    toast('Device enrolled and profiles deployed');
+  } else {
+    toast('Approve failed: ' + JSON.stringify(r.data), 'error');
+  }
+}
+
+// --- Enrolled Devices Page ---
+async function renderDevices(c) {
+  c.innerHTML = '<span class="spinner"></span> Loading...';
+  const r = await api('GET', '/onboarding');
+  if (!r.ok) { c.innerHTML = 'Failed to load'; return; }
+
+  const cases = r.data.data || [];
+  if (cases.length === 0) { c.innerHTML = '<div class="card"><div class="card-body">No enrolled devices yet. Go to Enroll Device to start.</div></div>'; return; }
+
+  let html = '<div class="card"><div class="card-header">Onboarding Cases (' + cases.length + ')</div><div class="card-body"><table><tr><th>ID</th><th>Vendor</th><th>Model</th><th>Firmware</th><th>Tier <i class="info-icon">i<span class="tooltip"><div class="tooltip-row"><span class="tooltip-tier tooltip-tier-a">A</span><span>Full Support &mdash; read + write</span></div><div class="tooltip-row"><span class="tooltip-tier tooltip-tier-b">B</span><span>Read Only</span></div><div class="tooltip-row"><span class="tooltip-tier tooltip-tier-c">C</span><span>Best Effort</span></div></span></i></th><th>Status</th><th>Owner</th><th>Created</th><th>Actions</th></tr>';
+  for (const cs of cases) {
+    const d = new Date(cs.created_at).toLocaleDateString();
+    html += `<tr>
+      <td>#${cs.id}</td>
+      <td>${cs.vendor}</td>
+      <td>${cs.model}</td>
+      <td>${cs.firmware || '-'}</td>
+      <td><span class="badge badge-blue">${cs.support_tier}</span></td>
+      <td><span class="status status-${cs.status}">${cs.status}</span></td>
+      <td>${cs.owner || '-'}</td>
+      <td>${d}</td>
+      <td><button class="btn btn-sm btn-primary" onclick="viewCaseDrafts(${cs.id})">View Drafts</button></td>
+    </tr>`;
+  }
+  html += '</table></div></div><div id="case-detail"></div>';
+  c.innerHTML = html;
+}
+
+async function viewCaseDrafts(id) {
+  const el = document.getElementById('case-detail');
+  el.innerHTML = '<span class="spinner"></span> Loading drafts...';
+  const r = await api('GET', '/onboarding/' + id + '/drafts');
+  if (!r.ok) { el.innerHTML = 'Failed to load drafts'; return; }
+
+  let html = '<div class="card"><div class="card-header">Case #' + id + ' - AI Drafts</div><div class="card-body">';
+
+  // Show capability matrix
+  if (r.data.capability_matrix) {
+    html += '<h3 style="margin-bottom:12px">Capability Matrix</h3>';
+    const capYaml = r.data.capability_matrix;
+    html += '<div class="json-view">' + escapeHtml(typeof capYaml === 'string' ? capYaml : JSON.stringify(capYaml, null, 2)) + '</div>';
+  }
+
+  // Show analysis report
+  if (r.data.analysis_report) {
+    const report = r.data.analysis_report;
+    html += '<h3 style="margin:16px 0 12px">Analysis Report</h3>';
+    if (report.capabilities) {
+      html += '<div class="cap-grid">';
+      for (const cap of report.capabilities) {
+        const cls = cap.supported ? 'supported' : 'unsupported';
+        const dot = cap.supported ? 'on' : 'off';
+        html += `<div class="cap-item ${cls}"><div class="cap-dot ${dot}"></div><span class="cap-name">${cap.capability}</span><span class="cap-conf">${cap.confidence}</span></div>`;
+      }
+      html += '</div>';
+    }
+  }
+
+  // Show vendor profile
+  if (r.data.vendor_profile) {
+    html += '<h3 style="margin:16px 0 12px">Vendor Profile</h3>';
+    html += '<div class="json-view">' + escapeHtml(typeof r.data.vendor_profile === 'string' ? r.data.vendor_profile : JSON.stringify(r.data.vendor_profile, null, 2)) + '</div>';
+  }
+
+  html += '</div></div>';
+  el.innerHTML = html;
+}
+
+// --- Profiles (4-Layer Architecture) Page ---
+async function renderProfiles(c) {
+  c.innerHTML = '<span class="spinner"></span> Loading profiles...';
+  const r = await api('GET', '/profiles');
+  if (!r.ok) { c.innerHTML = 'Failed to load profiles'; return; }
+
+  const data = r.data;
+  let html = '';
+
+  // Architecture diagram
+  html += `<div class="card"><div class="card-header">4-Layer Device Profile Architecture</div><div class="card-body">
+    <div style="display:flex;gap:12px;margin-bottom:20px">
+      <div style="flex:1;text-align:center;padding:16px;border-radius:8px;background:#1e3a5f;border:2px solid #0ea5e9">
+        <div style="font-size:24px;margin-bottom:4px">L1</div>
+        <div style="font-weight:600">Fingerprints</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">sysObjectID + sysDescr matching</div>
+      </div>
+      <div style="display:flex;align-items:center;color:#64748b">&#x2192;</div>
+      <div style="flex:1;text-align:center;padding:16px;border-radius:8px;background:#3b0764;border:2px solid #a855f7">
+        <div style="font-size:24px;margin-bottom:4px">L2</div>
+        <div style="font-weight:600">Capabilities</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">Boolean capability matrix</div>
+      </div>
+      <div style="display:flex;align-items:center;color:#64748b">&#x2192;</div>
+      <div style="flex:1;text-align:center;padding:16px;border-radius:8px;background:#065f46;border:2px solid #059669">
+        <div style="font-size:24px;margin-bottom:4px">L3</div>
+        <div style="font-weight:600">Vendor Mappings</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">OID/CLI with primary/fallback/verify</div>
+      </div>
+      <div style="display:flex;align-items:center;color:#64748b">&#x2192;</div>
+      <div style="flex:1;text-align:center;padding:16px;border-radius:8px;background:#713f12;border:2px solid #f59e0b">
+        <div style="font-size:24px;margin-bottom:4px">L4</div>
+        <div style="font-weight:600">Overrides</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">Model-specific tweaks</div>
+      </div>
+    </div>
+    <div style="text-align:center;color:#64748b;font-size:12px">Detection flow: sysDescr &#x2192; fingerprint match &#x2192; load capability + vendor profile &#x2192; apply override if exists</div>
+  </div></div>`;
+
+  // Layer 1: Fingerprints
+  const fps = data.fingerprints || [];
+  html += `<div class="card"><div class="card-header" style="border-left:3px solid #0ea5e9">Layer 1: Fingerprints (${fps.length})</div><div class="card-body">
+    <table><tr><th>ID</th><th>Vendor</th><th>OS</th><th>sysObjectID Prefix</th><th>sysDescr Contains</th><th>Priority</th></tr>`;
+  for (const fp of fps) {
+    const prefixes = (fp.match && fp.match.sysobjectid_prefix) ? fp.match.sysobjectid_prefix.join(', ') : '-';
+    const descrs = (fp.match && fp.match.sysdescr_contains) ? fp.match.sysdescr_contains.join(', ') : '-';
+    html += `<tr><td><strong>${fp.id || '-'}</strong></td><td>${fp.vendor || '-'}</td><td>${fp.os || '-'}</td><td><code>${prefixes}</code></td><td>${descrs}</td><td>${fp.priority || '-'}</td></tr>`;
+  }
+  html += '</table></div></div>';
+
+  // Layer 2: Capabilities
+  const caps = data.capabilities || [];
+  html += `<div class="card"><div class="card-header" style="border-left:3px solid #a855f7">Layer 2: Capability Matrix (${caps.length} profiles)</div><div class="card-body">`;
+
+  // Build comparison table
+  const allCaps = new Set();
+  for (const c of caps) {
+    if (c.capabilities) Object.keys(c.capabilities).forEach(k => allCaps.add(k));
+  }
+  const capList = [...allCaps].sort();
+
+  html += '<table><tr><th>Capability</th>';
+  for (const c of caps) html += `<th>${c.id || c._file}</th>`;
+  html += '</tr>';
+  for (const cap of capList) {
+    html += `<tr><td>${cap}</td>`;
+    for (const c of caps) {
+      const v = c.capabilities ? c.capabilities[cap] : undefined;
+      if (v === true) html += '<td style="color:#6ee7b7;text-align:center">&#x2713;</td>';
+      else if (v === false) html += '<td style="color:#fca5a5;text-align:center">&#x2717;</td>';
+      else html += '<td style="color:#64748b;text-align:center">-</td>';
+    }
+    html += '</tr>';
+  }
+  html += '</table></div></div>';
+
+  // Layer 3: Vendor Mappings
+  const vendors = data.vendors || [];
+  html += `<div class="card"><div class="card-header" style="border-left:3px solid #059669">Layer 3: Vendor Mappings (${vendors.length} profiles)</div><div class="card-body">`;
+  for (const v of vendors) {
+    html += `<details style="margin-bottom:8px"><summary style="cursor:pointer;padding:8px;background:#0f172a;border-radius:4px"><strong>${v.id || v._file}</strong>`;
+    if (v.protocols) html += ` &mdash; SNMP ${v.protocols.snmp?.version || '?'}, SSH ${v.protocols.ssh?.enabled ? 'yes':'no'}`;
+    html += '</summary>';
+    if (v.mappings) {
+      html += '<div style="padding:8px"><table><tr><th>Capability</th><th>Method</th><th>Details</th></tr>';
+      for (const [capName, mapping] of Object.entries(v.mappings)) {
+        const m = mapping.primary || mapping;
+        const method = m.method || '-';
+        let details = '';
+        if (m.oid_template) details = 'OID: ' + m.oid_template;
+        else if (m.table) details = 'Table: ' + m.table;
+        else if (m.oids) details = Object.entries(m.oids).map(([k,v]) => k + ': ' + v).join(', ');
+        else if (m.commands) details = 'CLI: ' + Object.keys(m.commands).join(', ');
+
+        const hasFallback = mapping.fallback ? ' <span class="badge badge-yellow">+ fallback</span>' : '';
+        const hasVerify = mapping.verify ? ' <span class="badge badge-green">+ verify</span>' : '';
+        html += `<tr><td>${capName}</td><td>${method}${hasFallback}${hasVerify}</td><td><code style="font-size:11px">${escapeHtml(details)}</code></td></tr>`;
+      }
+      html += '</table></div>';
+    }
+    html += '</details>';
+  }
+  html += '</div></div>';
+
+  // Layer 4: Overrides
+  const overrides = data.overrides || [];
+  html += `<div class="card"><div class="card-header" style="border-left:3px solid #f59e0b">Layer 4: Overrides (${overrides.length})</div><div class="card-body">`;
+  if (overrides.length === 0) {
+    html += '<div style="color:#64748b">No model-specific overrides defined</div>';
+  }
+  for (const o of overrides) {
+    html += `<details style="margin-bottom:8px"><summary style="cursor:pointer;padding:8px;background:#0f172a;border-radius:4px"><strong>${o.id || o._file}</strong> extends <em>${o.extends || '?'}</em></summary>`;
+    html += '<div class="json-view" style="margin:8px">' + escapeHtml(JSON.stringify(o, null, 2)) + '</div>';
+    html += '</details>';
+  }
+  html += '</div></div>';
+
+  c.innerHTML = html;
+}
+
+// --- Switches Page ---
+async function renderSwitches(c) {
+  c.innerHTML = '<span class="spinner"></span> Loading...';
+  // Try unit 1 by default
+  const r = await api('GET', '/units/1/switches');
+  let html = `<div class="card"><div class="card-header">Switches <button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="showAddSwitch()">Add Switch</button></div><div class="card-body">`;
+
+  if (r.ok && Array.isArray(r.data) && r.data.length > 0) {
+    html += '<table><tr><th>ID</th><th>Name</th><th>IP</th><th>Community</th><th>Version</th><th>Actions</th></tr>';
+    for (const sw of r.data) {
+      html += `<tr><td>${sw.id}</td><td>${sw.name}</td><td>${sw.ip}</td><td>${sw.community}</td><td>${sw.snmp_version || 'v2c'}</td>
+        <td><button class="btn btn-sm btn-primary" onclick="viewSwitch(${sw.id})">Details</button></td></tr>`;
+    }
+    html += '</table>';
+  } else {
+    html += '<div>No switches configured. Add one to get started.</div>';
+  }
+  html += '</div></div><div id="add-switch-form" style="display:none"></div><div id="switch-detail"></div>';
+  c.innerHTML = html;
+}
+
+function showAddSwitch() {
+  const el = document.getElementById('add-switch-form');
+  el.style.display = '';
+  el.innerHTML = `<div class="card"><div class="card-header">Add Switch</div><div class="card-body">
+    <div class="form-row">
+      <div class="form-group"><label>Name</label><input id="sw-name" placeholder="Core-SW-1"></div>
+      <div class="form-group"><label>IP</label><input id="sw-ip" placeholder="192.168.1.1"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Community</label><input id="sw-community" value="public"></div>
+      <div class="form-group"><label>SNMP Version</label><select id="sw-ver"><option value="2c">v2c</option><option value="1">v1</option></select></div>
+      <div class="form-group"><label>Unit ID</label><input id="sw-unit" value="1"></div>
+    </div>
+    <button class="btn btn-success" onclick="addSwitch()">Add</button>
+  </div></div>`;
+}
+
+async function addSwitch() {
+  const unit = document.getElementById('sw-unit').value || '1';
+  const r = await api('POST', '/units/' + unit + '/switches', {
+    name: document.getElementById('sw-name').value,
+    ip: document.getElementById('sw-ip').value,
+    community: document.getElementById('sw-community').value,
+    snmp_version: document.getElementById('sw-ver').value
+  });
+  if (r.ok) { toast('Switch added'); renderSwitches(document.getElementById('content')); }
+  else toast('Failed: ' + JSON.stringify(r.data), 'error');
+}
+
+async function viewSwitch(id) {
+  const el = document.getElementById('switch-detail');
+  el.innerHTML = '<span class="spinner"></span>';
+  const r = await api('GET', '/switches/' + id);
+  if (r.ok) el.innerHTML = '<div class="card"><div class="card-header">Switch #' + id + '</div><div class="card-body"><div class="json-view">' + JSON.stringify(r.data, null, 2) + '</div></div></div>';
+}
+
+// --- Discovery Page ---
+function renderDiscovery(c) {
+  c.innerHTML = `<div class="card"><div class="card-header">SNMP Discovery</div><div class="card-body">
+    <div class="form-row">
+      <div class="form-group"><label>Subnet</label><input id="d-subnet" placeholder="192.168.20.0/24"></div>
+      <div class="form-group"><label>Community</label><input id="d-community" value="public"></div>
+      <div class="form-group"><label>Version</label><select id="d-version"><option value="2c">v2c</option></select></div>
+    </div>
+    <button class="btn btn-primary" onclick="runDiscovery()">Discover</button>
+    <div id="d-result" style="margin-top:16px"></div>
+  </div></div>`;
+}
+
+async function runDiscovery() {
+  const el = document.getElementById('d-result');
+  el.innerHTML = '<span class="spinner"></span> Scanning...';
+  const r = await api('POST', '/snmp/discovery', {
+    subnet: document.getElementById('d-subnet').value,
+    community: document.getElementById('d-community').value,
+    version: document.getElementById('d-version').value
+  });
+  if (r.ok) {
+    const devs = r.data.devices || r.data;
+    if (Array.isArray(devs) && devs.length > 0) {
+      let html = '<table><tr><th>IP</th><th>sysName</th><th>sysDescr</th><th>sysObjectID</th></tr>';
+      for (const d of devs) html += `<tr><td>${d.ip}</td><td>${d.sys_name||d.sysName||'-'}</td><td style="max-width:400px;overflow:hidden;text-overflow:ellipsis">${d.sys_descr||d.sysDescr||'-'}</td><td>${d.sys_object_id||d.sysObjectID||'-'}</td></tr>`;
+      html += '</table>';
+      el.innerHTML = html;
+    } else {
+      el.innerHTML = '<div class="json-view">' + JSON.stringify(r.data, null, 2) + '</div>';
+    }
+  } else {
+    el.innerHTML = '<div style="color:#fca5a5">' + JSON.stringify(r.data) + '</div>';
+  }
+}
+
+// --- Tools Page ---
+function renderTools(c) {
+  c.innerHTML = `<div class="card"><div class="card-header">Network Tools</div><div class="card-body">
+    <div class="form-row">
+      <div class="form-group"><label>Tool</label>
+        <select id="t-tool"><option value="ping">Ping</option><option value="traceroute">Traceroute</option><option value="arping">ARP Ping</option><option value="dad-check">DAD Check</option></select>
+      </div>
+      <div class="form-group"><label>Target</label><input id="t-target" placeholder="192.168.20.211"></div>
+    </div>
+    <button class="btn btn-primary" onclick="runTool()">Run</button>
+    <div id="t-result" style="margin-top:16px"></div>
+  </div></div>`;
+}
+
+async function runTool() {
+  const tool = document.getElementById('t-tool').value;
+  const target = document.getElementById('t-target').value;
+  const el = document.getElementById('t-result');
+  el.innerHTML = '<span class="spinner"></span> Running ' + tool + '...';
+
+  const body = tool === 'arping' || tool === 'dad-check' ? { ip: target } : { target };
+  const r = await api('POST', '/tools/' + tool, body);
+  if (r.ok && r.data.task_id) {
+    // Poll for result
+    const taskId = r.data.task_id;
+    const poll = async () => {
+      const tr = await api('GET', '/tools/tasks/' + taskId);
+      if (tr.ok) {
+        if (tr.data.exec_status === 'finish' || tr.data.exec_status === 'completed') {
+          el.innerHTML = '<div class="json-view">' + JSON.stringify(tr.data, null, 2) + '</div>';
+        } else {
+          setTimeout(poll, 1000);
+        }
+      }
+    };
+    poll();
+  } else {
+    el.innerHTML = '<div class="json-view">' + JSON.stringify(r.data, null, 2) + '</div>';
+  }
+}
+
+// --- API Tester ---
+const API_CATALOG = [
+  { group: 'System', items: [
+    { method: 'GET', path: '/api/v2/version', desc: 'Server version' },
+    { method: 'GET', path: '/api/v2/interfaces', desc: 'Network interfaces' },
+    { method: 'GET', path: '/api/v2/profiles', desc: '4-layer profiles' },
+  ]},
+  { group: 'Switches', items: [
+    { method: 'GET', path: '/api/v2/units/{unitId}/switches', desc: 'List switches', params: ['unitId'] },
+    { method: 'POST', path: '/api/v2/units/{unitId}/switches', desc: 'Add switch', params: ['unitId'], body: '{"name":"SW-1","ip":"192.168.20.211","community":"public","snmp_version":"2c"}' },
+    { method: 'GET', path: '/api/v2/switches/{swId}', desc: 'Get switch', params: ['swId'] },
+    { method: 'PUT', path: '/api/v2/switches/{swId}', desc: 'Update switch', params: ['swId'], body: '{"name":"SW-1","ip":"192.168.20.211","community":"public"}' },
+    { method: 'DELETE', path: '/api/v2/switches/{swId}', desc: 'Delete switch', params: ['swId'] },
+  ]},
+  { group: 'Ports', items: [
+    { method: 'GET', path: '/api/v2/switches/{swId}/ports', desc: 'List ports', params: ['swId'] },
+    { method: 'GET', path: '/api/v2/switches/{swId}/ports/descriptions', desc: 'Port descriptions', params: ['swId'] },
+    { method: 'GET', path: '/api/v2/switches/{swId}/ports/{port}', desc: 'Get port', params: ['swId','port'] },
+    { method: 'PUT', path: '/api/v2/switches/{swId}/ports/{port}/admin', desc: 'Set port admin', params: ['swId','port'], body: '{"enabled":true}' },
+  ]},
+  { group: 'PoE', items: [
+    { method: 'GET', path: '/api/v2/switches/{swId}/poe', desc: 'PoE support', params: ['swId'] },
+    { method: 'GET', path: '/api/v2/switches/{swId}/poe/report', desc: 'PoE report', params: ['swId'] },
+    { method: 'PUT', path: '/api/v2/switches/{swId}/poe/{port}', desc: 'Set PoE', params: ['swId','port'], body: '{"enabled":true}' },
+  ]},
+  { group: 'Switch Info', items: [
+    { method: 'GET', path: '/api/v2/switches/{swId}/cpu', desc: 'CPU usage', params: ['swId'] },
+    { method: 'GET', path: '/api/v2/switches/{swId}/stats', desc: 'Switch stats', params: ['swId'] },
+    { method: 'GET', path: '/api/v2/switches/{swId}/vlans', desc: 'VLANs', params: ['swId'] },
+    { method: 'GET', path: '/api/v2/switches/{swId}/fdb', desc: 'FDB table', params: ['swId'] },
+    { method: 'POST', path: '/api/v2/switches/{swId}/reboot', desc: 'Reboot switch', params: ['swId'] },
+  ]},
+  { group: 'SNMP', items: [
+    { method: 'POST', path: '/api/v2/snmp/test', desc: 'SNMP test', body: '{"ip":"192.168.20.211","community":"public","version":"2c"}' },
+    { method: 'POST', path: '/api/v2/snmp/query', desc: 'SNMP query', body: '{"ip":"192.168.20.211","community":"public","version":"2c","operation":"get","oid":".1.3.6.1.2.1.1.1.0"}' },
+    { method: 'POST', path: '/api/v2/snmp/discovery', desc: 'Discovery', body: '{"subnet":"192.168.20.0/24","community":"public","version":"2c"}' },
+  ]},
+  { group: 'Tools', items: [
+    { method: 'POST', path: '/api/v2/tools/ping', desc: 'Ping', body: '{"target":"192.168.20.211"}' },
+    { method: 'POST', path: '/api/v2/tools/traceroute', desc: 'Traceroute', body: '{"target":"192.168.20.211"}' },
+    { method: 'POST', path: '/api/v2/tools/arping', desc: 'ARP ping', body: '{"ip":"192.168.20.211"}' },
+    { method: 'POST', path: '/api/v2/tools/dad-check', desc: 'DAD check', body: '{"ip":"192.168.20.211"}' },
+    { method: 'GET', path: '/api/v2/tools/tasks/{taskId}', desc: 'Get task result', params: ['taskId'] },
+  ]},
+  { group: 'MAC Location', items: [
+    { method: 'GET', path: '/api/v2/units/{unitId}/mac/{mac}', desc: 'Locate MAC', params: ['unitId','mac'] },
+    { method: 'GET', path: '/api/v2/units/{unitId}/mac/{mac}/ip', desc: 'MAC to IP', params: ['unitId','mac'] },
+    { method: 'GET', path: '/api/v2/units/{unitId}/ip/{ip}/mac', desc: 'IP to MAC', params: ['unitId','ip'] },
+    { method: 'POST', path: '/api/v2/units/{unitId}/topology/rebuild', desc: 'Rebuild topology', params: ['unitId'] },
+    { method: 'GET', path: '/api/v2/units/{unitId}/blocked', desc: 'List blocked MACs', params: ['unitId'] },
+    { method: 'POST', path: '/api/v2/units/{unitId}/blocked', desc: 'Block MAC', params: ['unitId'], body: '{"mac":"aa:bb:cc:dd:ee:ff","reason":"test"}' },
+    { method: 'DELETE', path: '/api/v2/units/{unitId}/blocked/{mac}', desc: 'Unblock MAC', params: ['unitId','mac'] },
+  ]},
+  { group: 'MIB', items: [
+    { method: 'GET', path: '/api/v2/mibs/modules', desc: 'List MIB modules' },
+    { method: 'GET', path: '/api/v2/mibs/lookup?name=sysDescr', desc: 'Lookup by name' },
+    { method: 'GET', path: '/api/v2/mibs/resolve?oid=1.3.6.1.2.1.1.1', desc: 'Resolve OID' },
+    { method: 'GET', path: '/api/v2/mibs/search?q=system', desc: 'Search MIBs' },
+  ]},
+  { group: 'Onboarding', items: [
+    { method: 'GET', path: '/api/v2/onboarding', desc: 'List cases' },
+    { method: 'POST', path: '/api/v2/onboarding', desc: 'Create case', body: '{"vendor":"cisco","model":"C2960X","firmware":"15.2","support_tier":"A","customer":"lab","owner":"kaiser"}' },
+    { method: 'GET', path: '/api/v2/onboarding/{id}', desc: 'Get case', params: ['id'] },
+    { method: 'DELETE', path: '/api/v2/onboarding/{id}', desc: 'Delete case', params: ['id'] },
+    { method: 'POST', path: '/api/v2/onboarding/{id}/fingerprint', desc: 'Submit fingerprint', params: ['id'], body: '{"sys_object_id":".1.3.6.1.4.1.9.1.1208","sys_descr":"Cisco IOS","ip":"192.168.20.211","community":"public","snmp_version":"2c"}' },
+    { method: 'POST', path: '/api/v2/onboarding/{id}/collect', desc: 'Auto-collect (async)', params: ['id'] },
+    { method: 'POST', path: '/api/v2/onboarding/{id}/evidence', desc: 'Upload evidence', params: ['id'] },
+    { method: 'POST', path: '/api/v2/onboarding/{id}/analyze', desc: 'Analyze evidence', params: ['id'] },
+    { method: 'GET', path: '/api/v2/onboarding/{id}/drafts', desc: 'Get drafts', params: ['id'] },
+    { method: 'POST', path: '/api/v2/onboarding/{id}/approve', desc: 'Approve & deploy', params: ['id'] },
+  ]},
+];
+
+function renderAPI(c) {
+  // Build API select options
+  let opts = '<option value="">-- Select an API --</option>';
+  for (const g of API_CATALOG) {
+    opts += `<optgroup label="${g.group}">`;
+    for (let i = 0; i < g.items.length; i++) {
+      const item = g.items[i];
+      const methodColor = {GET:'#6ee7b7',POST:'#7dd3fc',PUT:'#fde047',DELETE:'#fca5a5'}[item.method]||'#94a3b8';
+      opts += `<option value="${g.group}:${i}" data-method="${item.method}">${item.method} ${item.desc}</option>`;
+    }
+    opts += '</optgroup>';
+  }
+
+  c.innerHTML = `<div class="card"><div class="card-header">API Tester</div><div class="card-body">
+    <div class="form-group"><label>Select API</label>
+      <select id="api-select" onchange="onApiSelect()" style="font-family:monospace">${opts}</select>
+    </div>
+    <div id="api-params" style="margin-bottom:12px"></div>
+    <div class="api-row">
+      <select class="form-group api-method" id="api-method" style="width:100px">
+        <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option>
+      </select>
+      <input class="form-group api-url" id="api-url" placeholder="/api/v2/version" value="/api/v2/version">
+      <button class="btn btn-primary" onclick="runAPI()">Send</button>
+    </div>
+    <div class="form-group" id="api-body-group" style="display:none"><label>Request Body (JSON)</label>
+      <textarea id="api-body" rows="5" style="font-family:monospace" placeholder='{"key": "value"}'></textarea>
+    </div>
+    <div style="margin-top:12px">
+      <div style="font-size:12px;color:#64748b;margin-bottom:4px">Response <span id="api-status"></span></div>
+      <div class="api-response" id="api-response">Select an API from the dropdown above, then click Send</div>
+    </div>
+  </div></div>`;
+}
+
+function onApiSelect() {
+  const val = document.getElementById('api-select').value;
+  if (!val) return;
+  const [group, idx] = val.split(':');
+  const g = API_CATALOG.find(g => g.group === group);
+  const item = g.items[parseInt(idx)];
+
+  document.getElementById('api-method').value = item.method;
+
+  // Show params if needed
+  const paramsEl = document.getElementById('api-params');
+  if (item.params && item.params.length > 0) {
+    let html = '<div class="form-row">';
+    for (const p of item.params) {
+      let defaultVal = '';
+      if (p === 'unitId') defaultVal = '1';
+      else if (p === 'swId') defaultVal = '1';
+      else if (p === 'port') defaultVal = '1';
+      else if (p === 'id') defaultVal = '1';
+      html += `<div class="form-group"><label>{${p}}</label><input id="api-param-${p}" value="${defaultVal}" placeholder="${p}"></div>`;
+    }
+    html += '</div>';
+    paramsEl.innerHTML = html;
+    paramsEl.style.display = '';
+  } else {
+    paramsEl.innerHTML = '';
+  }
+
+  // Resolve path with params
+  apiSelectedItem = item;
+  updateApiUrl();
+
+  // Show body if POST/PUT
+  const bodyGroup = document.getElementById('api-body-group');
+  if (item.method === 'POST' || item.method === 'PUT') {
+    bodyGroup.style.display = '';
+    document.getElementById('api-body').value = item.body || '';
+  } else {
+    bodyGroup.style.display = 'none';
+    document.getElementById('api-body').value = '';
+  }
+}
+
+let apiSelectedItem = null;
+
+function updateApiUrl() {
+  if (!apiSelectedItem) return;
+  let path = apiSelectedItem.path;
+  if (apiSelectedItem.params) {
+    for (const p of apiSelectedItem.params) {
+      const el = document.getElementById('api-param-' + p);
+      if (el) path = path.replace('{' + p + '}', el.value || '{' + p + '}');
+    }
+  }
+  document.getElementById('api-url').value = path;
+}
+
+// Update URL when params change
+document.addEventListener('input', (e) => {
+  if (e.target.id && e.target.id.startsWith('api-param-')) updateApiUrl();
+});
+
+
+function quickAPI(method, url) {
+  document.getElementById('api-method').value = method;
+  document.getElementById('api-url').value = url;
+  document.getElementById('api-body').value = '';
+  runAPI();
+}
+
+async function runAPI() {
+  const method = document.getElementById('api-method').value;
+  const url = document.getElementById('api-url').value;
+  const bodyText = document.getElementById('api-body').value;
+  const el = document.getElementById('api-response');
+  const statusEl = document.getElementById('api-status');
+
+  el.textContent = 'Loading...';
+  const opts = { method, headers: { 'Authorization': AUTH } };
+  if (bodyText && method !== 'GET') {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = bodyText;
+  }
+
+  try {
+    const res = await fetch(url, opts);
+    statusEl.textContent = res.status + ' ' + res.statusText;
+    statusEl.style.color = res.ok ? '#6ee7b7' : '#fca5a5';
+    const text = await res.text();
+    try { el.textContent = JSON.stringify(JSON.parse(text), null, 2); }
+    catch { el.textContent = text; }
+  } catch(e) {
+    statusEl.textContent = 'Error';
+    statusEl.style.color = '#fca5a5';
+    el.textContent = e.message;
+  }
+}
+
+// --- SNMP Query ---
+function renderSNMP(c) {
+  c.innerHTML = `<div class="card"><div class="card-header">SNMP Query</div><div class="card-body">
+    <div class="form-row">
+      <div class="form-group"><label>IP Address</label><input id="sq-ip" placeholder="192.168.20.211"></div>
+      <div class="form-group"><label>Community</label><input id="sq-community" value="public"></div>
+      <div class="form-group"><label>Version</label><select id="sq-version"><option value="2c">v2c</option><option value="1">v1</option></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Operation</label><select id="sq-op"><option value="get">GET</option><option value="walk">WALK</option></select></div>
+      <div class="form-group" style="flex:2"><label>OID</label><input id="sq-oid" placeholder=".1.3.6.1.2.1.1.1.0" value=".1.3.6.1.2.1.1.1.0"></div>
+    </div>
+    <button class="btn btn-primary" onclick="runSNMPQuery()">Query</button>
+    <div id="sq-result" style="margin-top:16px"></div>
+  </div></div>`;
+}
+
+async function runSNMPQuery() {
+  const el = document.getElementById('sq-result');
+  el.innerHTML = '<span class="spinner"></span> Querying...';
+  const r = await api('POST', '/snmp/query', {
+    ip: document.getElementById('sq-ip').value,
+    community: document.getElementById('sq-community').value,
+    version: document.getElementById('sq-version').value,
+    operation: document.getElementById('sq-op').value,
+    oid: document.getElementById('sq-oid').value
+  });
+  el.innerHTML = '<div class="json-view">' + escapeHtml(JSON.stringify(r.data, null, 2)) + '</div>';
+}
+
+// --- Poll task until completion ---
+async function pollTask(taskId, intervalMs = 3000, maxWaitMs = 600000) {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const r = await api('GET', '/tools/tasks/' + taskId);
+    if (!r.ok) return { error: 'Failed to poll task' };
+    const task = r.data;
+    const status = task.exec_status || task.status;
+    if (status === 'finish' || status === 'completed') {
+      if (task.output && task.output.startsWith('ERROR:')) {
+        return { error: task.output };
+      }
+      try { return { data: JSON.parse(task.output) }; }
+      catch { return { data: task.output }; }
+    }
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+  return { error: 'Timed out waiting for task' };
+}
+
+// --- Utils ---
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// --- Init ---
+async function checkServer() {
+  try {
+    const r = await api('GET', '/version');
+    if (r.ok) {
+      document.getElementById('server-status').className = 'badge badge-green';
+      document.getElementById('server-status').textContent = 'v' + r.data.version + ' online';
+    }
+  } catch {
+    document.getElementById('server-status').className = 'badge badge-red';
+    document.getElementById('server-status').textContent = 'offline';
+  }
+}
+
+checkServer();
+renderPage();
+</script>
+</body>
+</html>

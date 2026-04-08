@@ -1,0 +1,55 @@
+id: cisco_c2960x
+mappings:
+    interfaces.read:
+        _confidence: high
+        _evidence: 'ifIndex: 515 entries; ifDescr: 116 entries; ifAdminStatus: 59 entries; ifOperStatus: 59 entries'
+        primary:
+            method: snmp
+            table: .1.3.6.1.2.1.2.2.1.1
+    poe.control.write:
+        _confidence: low
+        _evidence: 'pethPsePortAdminEnable (SET not tested): 96 entries; NOTE: write capability inferred from OID presence, SET not tested'
+        primary:
+            method: snmp
+            oid_template: .1.3.6.1.2.1.105.1.1.1.3.{ifIndex}
+    poe.status.read:
+        _confidence: high
+        _evidence: 'pethPsePort: 1152 entries; pethMainPse: 8 entries'
+        primary:
+            method: snmp
+            table: .1.3.6.1.2.1.105.1.1.1
+    port.admin.read:
+        _confidence: high
+        _evidence: 'ifAdminStatus: 59 entries'
+        primary:
+            method: snmp
+            oid_template: .1.3.6.1.2.1.2.2.1.7.{ifIndex}
+    port.admin.write:
+        _confidence: low
+        _evidence: 'ifAdminStatus (SET not tested from walk): 59 entries; NOTE: write capability inferred from OID presence, SET not tested'
+        primary:
+            method: snmp
+            oid_template: .1.3.6.1.2.1.2.2.1.7.{ifIndex}
+    port.oper.read:
+        _confidence: high
+        _evidence: 'ifOperStatus: 59 entries'
+        primary:
+            method: snmp
+            oid_template: .1.3.6.1.2.1.2.2.1.8.{ifIndex}
+    port.traffic.read:
+        _confidence: high
+        _evidence: 'ifInOctets: 57 entries; ifOutOctets: 57 entries'
+        primary:
+            method: snmp
+            table: .1.3.6.1.2.1.2.2.1.10
+    system.read:
+        _confidence: high
+        _evidence: 'sysDescr: 1 entries; sysObjectID: 1 entries; sysUpTime: 1 entries; sysName: 1 entries'
+        primary:
+            method: snmp
+            table: .1.3.6.1.2.1.1.1
+protocols:
+    snmp:
+        version: v2c
+    ssh:
+        enabled: true

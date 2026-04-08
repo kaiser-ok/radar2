@@ -4,14 +4,16 @@ import (
 	"net/http"
 
 	"new_radar/internal/onboarding"
+	"new_radar/internal/service"
 )
 
 type OnboardingHandler struct {
-	svc *onboarding.Service
+	svc       *onboarding.Service
+	taskStore *service.TaskStore
 }
 
-func NewOnboardingHandler(svc *onboarding.Service) *OnboardingHandler {
-	return &OnboardingHandler{svc: svc}
+func NewOnboardingHandler(svc *onboarding.Service, taskStore *service.TaskStore) *OnboardingHandler {
+	return &OnboardingHandler{svc: svc, taskStore: taskStore}
 }
 
 // POST /api/v2/onboarding
@@ -62,6 +64,20 @@ func (h *OnboardingHandler) GetCase(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, c)
 }
 
+// DELETE /api/v2/onboarding/{id}
+func (h *OnboardingHandler) DeleteCase(w http.ResponseWriter, r *http.Request) {
+	id, err := URLParamInt64(r, "id")
+	if err != nil {
+		Error(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := h.svc.DeleteCase(id); err != nil {
+		Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	JSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
 // POST /api/v2/onboarding/{id}/fingerprint
 func (h *OnboardingHandler) SubmitFingerprint(w http.ResponseWriter, r *http.Request) {
 	id, err := URLParamInt64(r, "id")
@@ -81,6 +97,24 @@ func (h *OnboardingHandler) SubmitFingerprint(w http.ResponseWriter, r *http.Req
 		return
 	}
 	JSON(w, http.StatusOK, map[string]string{"status": "fingerprint saved"})
+}
+
+// POST /api/v2/onboarding/{id}/collect
+func (h *OnboardingHandler) Collect(w http.ResponseWriter, r *http.Request) {
+	id, err := URLParamInt64(r, "id")
+	if err != nil {
+		Error(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+
+	task := h.taskStore.Create("onboarding", "collect")
+	h.svc.CollectAsync(id, task.ID)
+
+	JSON(w, http.StatusAccepted, map[string]string{
+		"task_id": task.ID,
+		"status":  "collecting",
+		"message": "SNMP walks started in background. Poll /api/v2/tools/tasks/" + task.ID + " for results.",
+	})
 }
 
 // POST /api/v2/onboarding/{id}/evidence

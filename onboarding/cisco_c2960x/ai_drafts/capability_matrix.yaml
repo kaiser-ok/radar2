@@ -1,0 +1,42 @@
+capabilities:
+    interfaces.read:
+        confidence: high
+        evidence: 'ifIndex: 515 entries; ifDescr: 116 entries; ifAdminStatus: 59 entries; ifOperStatus: 59 entries'
+        supported: true
+    mac_table.read:
+        confidence: high
+        evidence: 'dot1dTpFdb (bridge MIB): not found; dot1qTpFdb (Q-BRIDGE): not found'
+        supported: false
+    poe.control.write:
+        confidence: low
+        evidence: 'pethPsePortAdminEnable (SET not tested): 96 entries; NOTE: write capability inferred from OID presence, SET not tested'
+        supported: true
+    poe.status.read:
+        confidence: high
+        evidence: 'pethPsePort: 1152 entries; pethMainPse: 8 entries'
+        supported: true
+    port.admin.read:
+        confidence: high
+        evidence: 'ifAdminStatus: 59 entries'
+        supported: true
+    port.admin.write:
+        confidence: low
+        evidence: 'ifAdminStatus (SET not tested from walk): 59 entries; NOTE: write capability inferred from OID presence, SET not tested'
+        supported: true
+    port.oper.read:
+        confidence: high
+        evidence: 'ifOperStatus: 59 entries'
+        supported: true
+    port.traffic.read:
+        confidence: high
+        evidence: 'ifInOctets: 57 entries; ifOutOctets: 57 entries'
+        supported: true
+    system.read:
+        confidence: high
+        evidence: 'sysDescr: 1 entries; sysObjectID: 1 entries; sysUpTime: 1 entries; sysName: 1 entries'
+        supported: true
+    vlan.read:
+        confidence: high
+        evidence: 'dot1qVlanStatic: not found; dot1qVlanCurrent: not found'
+        supported: false
+id: cisco_c2960x

@@ -1,0 +1,42 @@
+capabilities:
+    interfaces.read:
+        confidence: high
+        evidence: 'ifIndex: 77 entries; ifDescr: 28 entries; ifAdminStatus: 7 entries; ifOperStatus: 7 entries'
+        supported: true
+    mac_table.read:
+        confidence: high
+        evidence: 'dot1dTpFdb (bridge MIB): 6 entries; dot1qTpFdb (Q-BRIDGE): 6 entries'
+        supported: true
+    poe.control.write:
+        confidence: high
+        evidence: 'pethPsePortAdminEnable (SET not tested): not found'
+        supported: false
+    poe.status.read:
+        confidence: high
+        evidence: 'pethPsePort: not found; pethMainPse: not found'
+        supported: false
+    port.admin.read:
+        confidence: high
+        evidence: 'ifAdminStatus: 7 entries'
+        supported: true
+    port.admin.write:
+        confidence: low
+        evidence: 'ifAdminStatus (SET not tested from walk): 7 entries; NOTE: write capability inferred from OID presence, SET not tested'
+        supported: true
+    port.oper.read:
+        confidence: high
+        evidence: 'ifOperStatus: 7 entries'
+        supported: true
+    port.traffic.read:
+        confidence: high
+        evidence: 'ifInOctets: 7 entries; ifOutOctets: 7 entries'
+        supported: true
+    system.read:
+        confidence: high
+        evidence: 'sysDescr: 1 entries; sysObjectID: 1 entries; sysUpTime: 1 entries; sysName: 1 entries'
+        supported: true
+    vlan.read:
+        confidence: high
+        evidence: 'dot1qVlanStatic: not found; dot1qVlanCurrent: not found'
+        supported: false
+id: mikrotik_rb450g

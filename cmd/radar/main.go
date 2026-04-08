@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"new_radar/internal/auth"
+	"new_radar/internal/device"
 	"new_radar/internal/config"
 	"new_radar/internal/db"
 	"new_radar/internal/handler"
@@ -54,6 +56,13 @@ func main() {
 	if err := db.Migrate(database, "migrations/001_initial.sql"); err != nil {
 		slog.Error("failed to run migrations", "error", err)
 		os.Exit(1)
+	}
+	// Seed default unit if none exists
+	var unitCount int
+	database.QueryRow("SELECT COUNT(*) FROM units").Scan(&unitCount)
+	if unitCount == 0 {
+		database.Exec("INSERT INTO units (id, name, radar_ip) VALUES (1, 'Default', '')")
+		slog.Info("seeded default unit")
 	}
 	slog.Info("database ready", "path", cfg.Database.Path)
 
@@ -109,6 +118,12 @@ func main() {
 	discoveryH := handler.NewDiscoveryHandler(discoverySvc, fdbSvc, switchRepo)
 	macH := handler.NewMACHandler(macSvc)
 
+	// Device executor (SNMP → SSH fallback)
+	executor := device.NewExecutor(snmpClient, profiles)
+	sshH := handler.NewSSHHandler(executor, switchRepo)
+
+	profilesH := handler.NewProfilesHandler("profiles")
+
 	// Onboarding service
 	onboardingSvc, err := onboarding.NewService(database, "onboarding")
 	if err != nil {
@@ -116,7 +131,18 @@ func main() {
 	} else {
 		slog.Info("onboarding service ready")
 	}
-	onboardingH := handler.NewOnboardingHandler(onboardingSvc)
+	if onboardingSvc != nil {
+		onboardingSvc.SetSNMPClient(snmpClient)
+		onboardingSvc.SetCollectCallback(func(taskID string, result *onboarding.CollectResult, err error) {
+			if err != nil {
+				taskStore.Fail(taskID, err.Error())
+			} else {
+				output, _ := json.Marshal(result)
+				taskStore.Complete(taskID, string(output))
+			}
+		})
+	}
+	onboardingH := handler.NewOnboardingHandler(onboardingSvc, taskStore)
 
 	// Router
 	r := chi.NewRouter()
@@ -144,7 +170,10 @@ func main() {
 		r.Get("/switches/{swId}/ports/descriptions", portH.GetDescriptions)
 		r.Get("/switches/{swId}/ports/{port}", portH.GetPort)
 		r.Put("/switches/{swId}/ports/{port}/admin", portH.SetPortAdmin)
-		// TODO Phase 2b: r.Put("/switches/{swId}/ports/{port}/speed", ...)
+		// SSH / Device executor (Phase 2b)
+		r.Post("/switches/{swId}/ssh/test", sshH.Test)
+		r.Post("/switches/{swId}/ssh/exec", sshH.Exec)
+		r.Post("/switches/{swId}/reboot", sshH.Reboot)
 
 		// Network tools (async)
 		r.Post("/tools/ping", toolsH.Ping)
@@ -163,7 +192,6 @@ func main() {
 		r.Get("/switches/{swId}/stats", swInfoH.Stats)
 		r.Get("/switches/{swId}/vlans", swInfoH.VLANs)
 		r.Get("/switches/{swId}/fdb", discoveryH.GetFDB)
-		r.Post("/switches/{swId}/reboot", discoveryH.Reboot)
 
 		// SNMP
 		r.Post("/snmp/test", snmpH.Test)
@@ -189,11 +217,16 @@ func main() {
 		r.Get("/mibs/search", mibH.Search)
 		r.Delete("/mibs/modules", mibH.DeleteModule)
 
+		// Device profiles (4-layer architecture)
+		r.Get("/profiles", profilesH.GetAll)
+
 		// Onboarding workflow
 		r.Post("/onboarding", onboardingH.CreateCase)
 		r.Get("/onboarding", onboardingH.ListCases)
 		r.Get("/onboarding/{id}", onboardingH.GetCase)
+		r.Delete("/onboarding/{id}", onboardingH.DeleteCase)
 		r.Post("/onboarding/{id}/fingerprint", onboardingH.SubmitFingerprint)
+		r.Post("/onboarding/{id}/collect", onboardingH.Collect)
 		r.Post("/onboarding/{id}/evidence", onboardingH.UploadEvidence)
 		r.Post("/onboarding/{id}/analyze", onboardingH.Analyze)
 		r.Get("/onboarding/{id}/drafts", onboardingH.GetDrafts)
@@ -202,6 +235,12 @@ func main() {
 		// TODO Phase 7: RSPAN
 		// r.Route("/rspan", func(r chi.Router) { ... })
 	})
+
+	// Serve web UI (outside auth middleware)
+	r.Get("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "web/index.html")
+	}))
+	r.Handle("/web/*", http.StripPrefix("/web/", http.FileServer(http.Dir("web"))))
 
 	// Server
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)

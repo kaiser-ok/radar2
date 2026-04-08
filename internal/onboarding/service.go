@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"new_radar/internal/snmp"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -66,10 +68,26 @@ type FingerprintRequest struct {
 	CLIStyle     string `json:"cli_style,omitempty" yaml:"cli_style,omitempty"`
 }
 
+// CollectResult summarizes what was collected during auto-collect.
+type CollectResult struct {
+	Walks []CollectWalk `json:"walks"`
+	Total int           `json:"total_entries"`
+}
+
+type CollectWalk struct {
+	Name    string `json:"name"`
+	OIDRoot string `json:"oid_root"`
+	Entries int    `json:"entries"`
+	File    string `json:"file"`
+}
+
 // Service handles onboarding operations.
 type Service struct {
 	db      *sql.DB
 	baseDir string // root onboarding directory
+	snmp    *snmp.Client
+	// collectCallback is called when async collect completes (taskID, result JSON or error)
+	collectCallback func(taskID string, result *CollectResult, err error)
 }
 
 func NewService(db *sql.DB, baseDir string) (*Service, error) {
@@ -78,6 +96,16 @@ func NewService(db *sql.DB, baseDir string) (*Service, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// SetSNMPClient sets the SNMP client for auto-collect.
+func (s *Service) SetSNMPClient(c *snmp.Client) {
+	s.snmp = c
+}
+
+// SetCollectCallback sets the callback for async collect completion.
+func (s *Service) SetCollectCallback(cb func(string, *CollectResult, error)) {
+	s.collectCallback = cb
 }
 
 func (s *Service) createTable() error {
@@ -99,8 +127,18 @@ func (s *Service) createTable() error {
 	return err
 }
 
-// CreateCase creates a new onboarding case.
+// CreateCase creates a new onboarding case. Rejects duplicates by vendor+model.
 func (s *Service) CreateCase(req *IntakeRequest) (*Case, error) {
+	// Check for existing case with same vendor+model (case-insensitive)
+	var count int
+	s.db.QueryRow(
+		"SELECT COUNT(*) FROM onboarding_cases WHERE LOWER(vendor)=LOWER(?) AND LOWER(model)=LOWER(?)",
+		req.Vendor, req.Model,
+	).Scan(&count)
+	if count > 0 {
+		return nil, fmt.Errorf("onboarding case for %s %s already exists", req.Vendor, req.Model)
+	}
+
 	dirName := fmt.Sprintf("%s_%s", strings.ToLower(req.Vendor), strings.ToLower(strings.ReplaceAll(req.Model, " ", "_")))
 	caseDir := filepath.Join(s.baseDir, dirName)
 
@@ -189,6 +227,19 @@ func (s *Service) ListCases() ([]Case, error) {
 	return cases, rows.Err()
 }
 
+// DeleteCase removes an onboarding case and its directory.
+func (s *Service) DeleteCase(id int64) error {
+	c, err := s.GetCase(id)
+	if err != nil {
+		return err
+	}
+	// Remove directory
+	os.RemoveAll(filepath.Join(s.baseDir, c.Dir))
+	// Remove from DB
+	_, err = s.db.Exec("DELETE FROM onboarding_cases WHERE id = ?", id)
+	return err
+}
+
 func (s *Service) updateStatus(id int64, status CaseStatus) error {
 	_, err := s.db.Exec(
 		"UPDATE onboarding_cases SET status = ?, updated_at = ? WHERE id = ?",
@@ -211,6 +262,175 @@ func (s *Service) SubmitFingerprint(id int64, fp *FingerprintRequest) error {
 	}
 
 	return s.updateStatus(id, StatusEvidence)
+}
+
+// CollectAsync starts SNMP collection in a background goroutine.
+// It calls the collectCallback with (taskID, result, error) when done.
+func (s *Service) CollectAsync(id int64, taskID string) {
+	go func() {
+		result, err := s.Collect(id)
+		if s.collectCallback != nil {
+			s.collectCallback(taskID, result, err)
+		}
+	}()
+}
+
+// Collect performs SNMP walks against the device and saves them as evidence.
+func (s *Service) Collect(id int64) (*CollectResult, error) {
+	if s.snmp == nil {
+		return nil, fmt.Errorf("SNMP client not configured")
+	}
+
+	c, err := s.GetCase(id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Read fingerprint to get connection info
+	fpPath := filepath.Join(s.baseDir, c.Dir, "fingerprint.yaml")
+	fpData, err := os.ReadFile(fpPath)
+	if err != nil {
+		return nil, fmt.Errorf("fingerprint not found: submit fingerprint first")
+	}
+	var fp FingerprintRequest
+	if err := yaml.Unmarshal(fpData, &fp); err != nil {
+		return nil, fmt.Errorf("invalid fingerprint: %w", err)
+	}
+	if fp.IP == "" || fp.Community == "" {
+		return nil, fmt.Errorf("fingerprint missing ip or community")
+	}
+
+	version := snmp.Version2c
+	if fp.SNMPVersion == "1" {
+		version = snmp.Version1
+	}
+
+	// Determine vendor enterprise OID from sysObjectID
+	vendorOID := ""
+	if strings.HasPrefix(fp.SysObjectID, ".1.3.6.1.4.1.") {
+		parts := strings.Split(fp.SysObjectID, ".")
+		if len(parts) >= 8 {
+			vendorOID = strings.Join(parts[:8], ".")
+		}
+	}
+
+	// Define walk targets
+	type walkTarget struct {
+		name    string
+		oidRoot string
+	}
+	targets := []walkTarget{
+		{name: "standard", oidRoot: ".1.3.6.1.2.1"},
+		{name: "bridge", oidRoot: ".1.3.6.1.2.1.17"},
+		{name: "poe", oidRoot: ".1.3.6.1.2.1.105"},
+	}
+	if vendorOID != "" {
+		targets = append(targets, walkTarget{name: "vendor", oidRoot: vendorOID})
+	}
+
+	evidenceDir := filepath.Join(s.baseDir, c.Dir, "evidence")
+	result := &CollectResult{}
+
+	for _, t := range targets {
+		results, err := s.snmp.BulkWalk(fp.IP, fp.Community, version, t.oidRoot)
+		if err != nil || len(results) == 0 {
+			continue
+		}
+
+		// Format as snmpwalk -On output
+		var lines []string
+		for _, r := range results {
+			line := formatWalkLine(r)
+			if line != "" {
+				lines = append(lines, line)
+			}
+		}
+
+		if len(lines) == 0 {
+			continue
+		}
+
+		filename := fmt.Sprintf("%s_%s.walk", strings.ToLower(c.Vendor), t.name)
+		walkPath := filepath.Join(evidenceDir, filename)
+		os.WriteFile(walkPath, []byte(strings.Join(lines, "\n")+"\n"), 0644)
+
+		result.Walks = append(result.Walks, CollectWalk{
+			Name:    t.name,
+			OIDRoot: t.oidRoot,
+			Entries: len(lines),
+			File:    filename,
+		})
+		result.Total += len(lines)
+	}
+
+	if len(result.Walks) == 0 {
+		return nil, fmt.Errorf("no SNMP data collected from %s", fp.IP)
+	}
+
+	return result, nil
+}
+
+// formatWalkLine converts an SNMP result to snmpwalk -On format.
+func formatWalkLine(r snmp.Result) string {
+	typeName, value := snmpResultToWalkFormat(r)
+	if typeName == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s = %s: %s", r.OID, typeName, value)
+}
+
+func snmpResultToWalkFormat(r snmp.Result) (string, string) {
+	switch r.Type {
+	case 0x02: // Integer
+		return "INTEGER", fmt.Sprintf("%v", r.Value)
+	case 0x04: // OctetString
+		switch v := r.Value.(type) {
+		case []byte:
+			if isPrintable(v) {
+				return "STRING", fmt.Sprintf("\"%s\"", string(v))
+			}
+			return "Hex-STRING", formatHex(v)
+		case string:
+			return "STRING", fmt.Sprintf("\"%s\"", v)
+		default:
+			return "STRING", fmt.Sprintf("\"%v\"", v)
+		}
+	case 0x05: // Null
+		return "NULL", ""
+	case 0x06: // ObjectIdentifier
+		return "OID", fmt.Sprintf("%v", r.Value)
+	case 0x40: // IPAddress
+		return "IpAddress", fmt.Sprintf("%v", r.Value)
+	case 0x41: // Counter32
+		return "Counter32", fmt.Sprintf("%v", r.Value)
+	case 0x42: // Gauge32
+		return "Gauge32", fmt.Sprintf("%v", r.Value)
+	case 0x43: // TimeTicks
+		return "Timeticks", fmt.Sprintf("(%v)", r.Value)
+	case 0x46: // Counter64
+		return "Counter64", fmt.Sprintf("%v", r.Value)
+	default:
+		return "STRING", fmt.Sprintf("\"%v\"", r.Value)
+	}
+}
+
+func isPrintable(b []byte) bool {
+	for _, c := range b {
+		if c < 0x20 || c > 0x7e {
+			if c != '\r' && c != '\n' && c != '\t' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func formatHex(b []byte) string {
+	parts := make([]string, len(b))
+	for i, c := range b {
+		parts[i] = fmt.Sprintf("%02X", c)
+	}
+	return strings.Join(parts, " ")
 }
 
 // UploadEvidence saves an evidence file (walk, CLI output, MIB).

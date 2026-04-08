@@ -1,0 +1,9 @@
+sysObjectID: .1.3.6.1.4.1.9.1.1208
+sysDescr: Cisco IOS Software, C2960X Software (C2960X-UNIVERSALK9-M), Version 15.2(2)E5, RELEASE SOFTWARE (fc2)
+sysName: Gentrice-2960X.local.lab
+snmp_version: 2c
+community: public
+ip: 192.168.20.211
+ssh_available: true
+ssh_prompt_sample: '#'
+cli_style: ios
