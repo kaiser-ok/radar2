@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,6 +33,65 @@ func (h *ProfilesHandler) GetAll(w http.ResponseWriter, r *http.Request) {
 		"overrides":    readYAMLDir(filepath.Join(h.baseDir, "overrides")),
 	}
 	JSON(w, http.StatusOK, result)
+}
+
+// POST /api/v2/profiles/overrides — create or update a Layer 4 override
+func (h *ProfilesHandler) CreateOverride(w http.ResponseWriter, r *http.Request) {
+	var body map[string]interface{}
+	if err := DecodeJSON(r, &body); err != nil {
+		Error(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	id, _ := body["id"].(string)
+	if id == "" {
+		Error(w, http.StatusBadRequest, "id is required")
+		return
+	}
+	extends, _ := body["extends"].(string)
+	if extends == "" {
+		Error(w, http.StatusBadRequest, "extends is required (base profile ID)")
+		return
+	}
+
+	data, err := yaml.Marshal(body)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, "failed to marshal YAML")
+		return
+	}
+
+	overrideDir := filepath.Join(h.baseDir, "overrides")
+	os.MkdirAll(overrideDir, 0755)
+
+	filename := id + ".yaml"
+	if err := os.WriteFile(filepath.Join(overrideDir, filename), data, 0644); err != nil {
+		Error(w, http.StatusInternalServerError, "failed to write override file: "+err.Error())
+		return
+	}
+
+	JSON(w, http.StatusCreated, map[string]string{"status": "created", "file": filename})
+}
+
+// DELETE /api/v2/profiles/overrides/{filename} — delete a Layer 4 override
+func (h *ProfilesHandler) DeleteOverride(w http.ResponseWriter, r *http.Request) {
+	filename := chi.URLParam(r, "filename")
+	if filename == "" || !strings.HasSuffix(filename, ".yaml") {
+		Error(w, http.StatusBadRequest, "invalid filename")
+		return
+	}
+
+	path := filepath.Join(h.baseDir, "overrides", filename)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		Error(w, http.StatusNotFound, "override not found")
+		return
+	}
+
+	if err := os.Remove(path); err != nil {
+		Error(w, http.StatusInternalServerError, "failed to delete: "+err.Error())
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func readYAMLDir(dir string) []map[string]interface{} {

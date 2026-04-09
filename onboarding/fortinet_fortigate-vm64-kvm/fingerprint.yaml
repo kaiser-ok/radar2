@@ -1,0 +1,7 @@
+sysObjectID: .1.3.6.1.4.1.12356.101.1.80001
+sysDescr: ""
+sysName: FortiGate-VM64-KVM
+snmp_version: 2c
+community: public
+ip: 192.168.30.131
+ssh_available: false

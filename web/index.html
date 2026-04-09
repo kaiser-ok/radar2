@@ -213,6 +213,9 @@ function renderPage() {
 // --- Enroll Page ---
 function renderEnroll(c) {
   c.innerHTML = `
+    <div style="background:#0c1426;border:1px solid #1e3a5f;border-radius:8px;padding:10px 16px;margin-bottom:16px;color:#7dd3fc;font-size:13px">
+      Full flow automatic: <strong>Test &rarr; Create &rarr; Collect &rarr; Analyze &rarr; Approve</strong> &rarr; device is recognized and supported. New vendor profiles are auto-generated from SNMP evidence.
+    </div>
     <div class="wizard-steps">
       <div class="wizard-step active" id="ws-1">1. SNMP Test</div>
       <div class="wizard-step" id="ws-2">2. Create Case</div>
@@ -299,23 +302,47 @@ async function enrollTest() {
     document.getElementById('ws-1').className = 'wizard-step done';
     document.getElementById('ws-2').className = 'wizard-step active';
 
-    // Try to detect vendor/model from sysDescr
+    // Try to detect vendor/model from sysObjectID (primary) and sysDescr (fallback)
     const desc = info.sysDescr || '';
-    if (desc.toLowerCase().includes('cisco')) {
-      document.getElementById('e-vendor').value = 'cisco';
-      const m = desc.match(/C(\d+\w*)/i) || desc.match(/Software[^,]*\((\S+?)-/i);
-      if (m) document.getElementById('e-model').value = m[1];
-    } else if (desc.toLowerCase().includes('routeros') || desc.toLowerCase().includes('mikrotik')) {
-      document.getElementById('e-vendor').value = 'mikrotik';
-      const m = desc.match(/RouterOS\s+(\S+)/i);
-      if (m) document.getElementById('e-model').value = m[1];
-    } else if (desc.toLowerCase().includes('d-link') || desc.toLowerCase().includes('dlink')) {
-      document.getElementById('e-vendor').value = 'dlink';
-    } else if (desc.toLowerCase().includes('zyxel')) {
-      document.getElementById('e-vendor').value = 'zyxel';
-    } else if (desc.toLowerCase().includes('aruba') || desc.toLowerCase().includes('procurve')) {
-      document.getElementById('e-vendor').value = 'hp';
+    const oid = (info.sysObjectID || '').replace(/^\./, '');
+    let vendor = '';
+    if (oid.startsWith('1.3.6.1.4.1.9.')) vendor = 'cisco';
+    else if (oid.startsWith('1.3.6.1.4.1.171.')) vendor = 'dlink';
+    else if (oid.startsWith('1.3.6.1.4.1.890.')) vendor = 'zyxel';
+    else if (oid.startsWith('1.3.6.1.4.1.14988.')) vendor = 'mikrotik';
+    else if (oid.startsWith('1.3.6.1.4.1.11.') || oid.startsWith('1.3.6.1.4.1.47196.')) vendor = 'hp';
+    else if (oid.startsWith('1.3.6.1.4.1.12356.')) vendor = 'fortinet';
+    // Fallback: match sysDescr or sysName text
+    if (!vendor) {
+      const dl = (desc || info.sysName || '').toLowerCase();
+      if (dl.includes('cisco')) vendor = 'cisco';
+      else if (dl.includes('routeros') || dl.includes('mikrotik')) vendor = 'mikrotik';
+      else if (dl.includes('d-link') || dl.includes('dlink')) vendor = 'dlink';
+      else if (dl.includes('zyxel')) vendor = 'zyxel';
+      else if (dl.includes('aruba') || dl.includes('procurve')) vendor = 'hp';
+      else if (dl.includes('forti')) vendor = 'fortinet';
     }
+    if (vendor) document.getElementById('e-vendor').value = vendor;
+
+    // Try to detect model from sysDescr or sysName
+    const descOrName = desc || info.sysName || '';
+    if (vendor === 'cisco') {
+      const m = descOrName.match(/C(\d+\w*)/i) || descOrName.match(/Software[^,]*\((\S+?)-/i);
+      if (m) document.getElementById('e-model').value = m[1];
+    } else if (vendor === 'mikrotik') {
+      const m = descOrName.match(/RouterOS\s+(\S+)/i);
+      if (m) document.getElementById('e-model').value = m[1];
+    } else if (vendor === 'fortinet') {
+      const m = descOrName.match(/(FortiGate[\w-]*|FortiSwitch[\w-]*)/i);
+      if (m) document.getElementById('e-model').value = m[1];
+    }
+
+    // Auto-select support tier based on vendor profile availability
+    const knownFullSupport = ['cisco', 'dlink', 'hp', 'zyxel', 'mikrotik'];
+    const tierEl = document.getElementById('e-tier');
+    if (knownFullSupport.includes(vendor)) tierEl.value = 'A';
+    else if (vendor) tierEl.value = 'C';
+    else tierEl.value = 'C';
 
     // Extract firmware
     const fw = desc.match(/Version\s+(\S+)/i) || desc.match(/(\d+\.\d+\.\d+)/);
@@ -418,7 +445,7 @@ async function enrollCreate() {
   document.getElementById('e-approve-area').innerHTML = `
     <p style="margin-bottom:12px">Review the capabilities above. Click Approve to deploy profiles to production.</p>
     <button class="btn btn-success" onclick="enrollApprove(${caseId})">Approve & Deploy Profiles</button>
-    <button class="btn btn-danger" style="margin-left:8px" onclick="toast('Case kept in draft status')">Reject</button>
+    <button class="btn btn-danger" style="margin-left:8px" onclick="enrollReject(${caseId})">Reject & Remove</button>
   `;
 }
 
@@ -426,10 +453,23 @@ async function enrollApprove(caseId) {
   const r = await api('POST', '/onboarding/' + caseId + '/approve');
   if (r.ok) {
     document.getElementById('ws-5').className = 'wizard-step done';
-    document.getElementById('e-approve-area').innerHTML = '<div style="color:#6ee7b7;font-size:16px">Profiles deployed to production successfully!</div>';
+    document.getElementById('e-approve-area').innerHTML = `<div style="color:#6ee7b7;font-size:16px;margin-bottom:12px">Profiles deployed to production successfully!</div>
+      <button class="btn btn-primary" onclick="verifyCase(${caseId})">Verify Features on Device</button>
+      <div id="verify-result" style="margin-top:12px"></div>`;
     toast('Device enrolled and profiles deployed');
   } else {
     toast('Approve failed: ' + JSON.stringify(r.data), 'error');
+  }
+}
+
+async function enrollReject(caseId) {
+  if (!confirm('Remove this case and all its data? You can start over after.')) return;
+  const r = await api('DELETE', '/onboarding/' + caseId);
+  if (r.ok) {
+    toast('Case removed');
+    navigate('enroll');
+  } else {
+    toast('Remove failed: ' + JSON.stringify(r.data), 'error');
   }
 }
 
@@ -454,11 +494,51 @@ async function renderDevices(c) {
       <td><span class="status status-${cs.status}">${cs.status}</span></td>
       <td>${cs.owner || '-'}</td>
       <td>${d}</td>
-      <td><button class="btn btn-sm btn-primary" onclick="viewCaseDrafts(${cs.id})">View Drafts</button></td>
+      <td><button class="btn btn-sm btn-primary" onclick="viewCaseDrafts(${cs.id})">Drafts</button> <button class="btn btn-sm btn-success" onclick="approveCase(${cs.id})">${cs.status === 'approved' ? 'Re-deploy' : 'Approve'}</button> <button class="btn btn-sm btn-primary" onclick="verifyCase(${cs.id})" style="background:#7c3aed">Verify</button> <button class="btn btn-sm btn-danger" onclick="deleteCase(${cs.id})">Delete</button></td>
     </tr>`;
   }
   html += '</table></div></div><div id="case-detail"></div>';
   c.innerHTML = html;
+}
+
+async function verifyCase(id) {
+  const el = document.getElementById('verify-result') || document.getElementById('case-detail');
+  el.innerHTML = '<span class="spinner"></span> Verifying capabilities on device...';
+  const r = await api('POST', '/onboarding/' + id + '/verify');
+  if (!r.ok) { el.innerHTML = '<div style="color:#fca5a5">Verify failed: ' + JSON.stringify(r.data) + '</div>'; return; }
+  const results = r.data.results || [];
+  let ok = 0, fail = 0;
+  let html = '<table><tr><th>Capability</th><th>Status</th><th>Detail</th></tr>';
+  for (const v of results) {
+    const color = v.status === 'ok' ? '#6ee7b7' : v.status === 'fail' ? '#fca5a5' : '#94a3b8';
+    const icon = v.status === 'ok' ? '&#x2713;' : v.status === 'fail' ? '&#x2717;' : '-';
+    html += `<tr><td>${v.capability}</td><td style="color:${color}">${icon} ${v.status}${v.count ? ' (' + v.count + ')' : ''}</td><td style="font-size:12px">${escapeHtml(v.detail)}</td></tr>`;
+    if (v.status === 'ok') ok++; else if (v.status === 'fail') fail++;
+  }
+  html += '</table>';
+  html = `<div style="margin-bottom:8px"><strong>Verification: ${ok} passed, ${fail} failed</strong></div>` + html;
+  el.innerHTML = html;
+}
+
+async function approveCase(id) {
+  const r = await api('POST', '/onboarding/' + id + '/approve');
+  if (r.ok) {
+    toast('Case #' + id + ' approved and profiles deployed');
+    navigate('devices');
+  } else {
+    toast('Approve failed: ' + JSON.stringify(r.data), 'error');
+  }
+}
+
+async function deleteCase(id) {
+  if (!confirm('Delete case #' + id + ' and all its data?')) return;
+  const r = await api('DELETE', '/onboarding/' + id);
+  if (r.ok) {
+    toast('Case #' + id + ' deleted');
+    navigate('devices');
+  } else {
+    toast('Delete failed: ' + JSON.stringify(r.data), 'error');
+  }
 }
 
 async function viewCaseDrafts(id) {
@@ -607,18 +687,86 @@ async function renderProfiles(c) {
 
   // Layer 4: Overrides
   const overrides = data.overrides || [];
-  html += `<div class="card"><div class="card-header" style="border-left:3px solid #f59e0b">Layer 4: Overrides (${overrides.length})</div><div class="card-body">`;
+  html += `<div class="card"><div class="card-header" style="border-left:3px solid #f59e0b">Layer 4: Overrides (${overrides.length}) <button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="showOverrideForm()">Create Override</button></div><div class="card-body">`;
+
+  // Create override form (hidden by default)
+  const fpOptions = (data.fingerprints || []).map(f => `<option value="${f.id}">${f.id} (${f.vendor})</option>`).join('');
+  html += `<div id="override-form" style="display:none;margin-bottom:16px;padding:16px;background:#0f172a;border:1px solid #334155;border-radius:8px">
+    <div style="font-weight:600;margin-bottom:12px">New Override</div>
+    <div class="form-row">
+      <div class="form-group"><label>Override ID</label><input id="ov-id" placeholder="e.g. mikrotik_rb450g_v7"></div>
+      <div class="form-group"><label>Extends (base profile)</label><select id="ov-extends"><option value="">-- select base profile --</option>${fpOptions}</select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Match sysDescr contains (comma-separated)</label><input id="ov-descr" placeholder="e.g. RB450G,v7.23"></div>
+      <div class="form-group"><label>Match sysObjectID prefix (comma-separated, optional)</label><input id="ov-oid" placeholder="e.g. 1.3.6.1.4.1.14988.1"></div>
+    </div>
+    <div class="form-group"><label>Capability overrides (JSON)</label>
+      <textarea id="ov-caps" rows="3" style="font-family:monospace" placeholder='{"poe.status.read": true, "poe.control.write": true}'>{}</textarea>
+    </div>
+    <div class="form-group"><label>Mapping overrides (JSON, optional)</label>
+      <textarea id="ov-mappings" rows="5" style="font-family:monospace" placeholder='{"poe.status.read": {"method": "snmp", "oid_template": "1.3.6.1.2.1.105.1.1.1.3.{ifIndex}"}}'>{}</textarea>
+    </div>
+    <button class="btn btn-success" onclick="saveOverride()">Save Override</button>
+    <button class="btn" style="margin-left:8px;color:#94a3b8" onclick="document.getElementById('override-form').style.display='none'">Cancel</button>
+  </div>`;
+
   if (overrides.length === 0) {
     html += '<div style="color:#64748b">No model-specific overrides defined</div>';
   }
   for (const o of overrides) {
-    html += `<details style="margin-bottom:8px"><summary style="cursor:pointer;padding:8px;background:#0f172a;border-radius:4px"><strong>${o.id || o._file}</strong> extends <em>${o.extends || '?'}</em></summary>`;
+    html += `<details style="margin-bottom:8px"><summary style="cursor:pointer;padding:8px;background:#0f172a;border-radius:4px"><strong>${o.id || o._file}</strong> extends <em>${o.extends || '?'}</em>
+      <button class="btn btn-sm btn-danger" style="float:right" onclick="event.stopPropagation();deleteOverride('${o._file}')">Delete</button></summary>`;
     html += '<div class="json-view" style="margin:8px">' + escapeHtml(JSON.stringify(o, null, 2)) + '</div>';
     html += '</details>';
   }
   html += '</div></div>';
 
   c.innerHTML = html;
+}
+
+function showOverrideForm() {
+  document.getElementById('override-form').style.display = '';
+}
+
+async function saveOverride() {
+  const id = document.getElementById('ov-id').value.trim();
+  const extends_ = document.getElementById('ov-extends').value;
+  const descrRaw = document.getElementById('ov-descr').value.trim();
+  const oidRaw = document.getElementById('ov-oid').value.trim();
+
+  if (!id || !extends_) { toast('ID and base profile are required', 'error'); return; }
+
+  let caps = {}, mappings = {};
+  try { caps = JSON.parse(document.getElementById('ov-caps').value || '{}'); } catch(e) { toast('Invalid capability JSON', 'error'); return; }
+  try { mappings = JSON.parse(document.getElementById('ov-mappings').value || '{}'); } catch(e) { toast('Invalid mapping JSON', 'error'); return; }
+
+  const match = {};
+  if (descrRaw) match.sysdescr_contains = descrRaw.split(',').map(s => s.trim()).filter(Boolean);
+  if (oidRaw) match.sysobjectid_prefix = oidRaw.split(',').map(s => s.trim()).filter(Boolean);
+
+  const body = { id, extends: extends_, match, overrides: {} };
+  if (Object.keys(caps).length > 0) body.overrides.capabilities = caps;
+  if (Object.keys(mappings).length > 0) body.overrides.mappings = mappings;
+
+  const r = await api('POST', '/profiles/overrides', body);
+  if (r.ok) {
+    toast('Override created');
+    navigate('profiles');
+  } else {
+    toast('Failed: ' + JSON.stringify(r.data), 'error');
+  }
+}
+
+async function deleteOverride(filename) {
+  if (!confirm('Delete override ' + filename + '?')) return;
+  const r = await api('DELETE', '/profiles/overrides/' + filename);
+  if (r.ok) {
+    toast('Override deleted');
+    navigate('profiles');
+  } else {
+    toast('Delete failed: ' + JSON.stringify(r.data), 'error');
+  }
 }
 
 // --- Switches Page ---
@@ -769,73 +917,78 @@ async function runTool() {
 // --- API Tester ---
 const API_CATALOG = [
   { group: 'System', items: [
-    { method: 'GET', path: '/api/v2/version', desc: 'Server version' },
-    { method: 'GET', path: '/api/v2/interfaces', desc: 'Network interfaces' },
-    { method: 'GET', path: '/api/v2/profiles', desc: '4-layer profiles' },
+    { method: 'GET', path: '/api/v2/version', desc: 'Server version', hint: 'Radar build version and date' },
+    { method: 'GET', path: '/api/v2/interfaces', desc: 'Network interfaces', hint: 'List probe NIC IPs and MACs' },
+    { method: 'GET', path: '/api/v2/profiles', desc: '4-layer profiles', hint: 'All fingerprints, capabilities, vendor mappings, overrides' },
   ]},
   { group: 'Switches', items: [
-    { method: 'GET', path: '/api/v2/units/{unitId}/switches', desc: 'List switches', params: ['unitId'] },
-    { method: 'POST', path: '/api/v2/units/{unitId}/switches', desc: 'Add switch', params: ['unitId'], body: '{"name":"SW-1","ip":"192.168.20.211","community":"public","snmp_version":"2c"}' },
-    { method: 'GET', path: '/api/v2/switches/{swId}', desc: 'Get switch', params: ['swId'] },
-    { method: 'PUT', path: '/api/v2/switches/{swId}', desc: 'Update switch', params: ['swId'], body: '{"name":"SW-1","ip":"192.168.20.211","community":"public"}' },
-    { method: 'DELETE', path: '/api/v2/switches/{swId}', desc: 'Delete switch', params: ['swId'] },
+    { method: 'GET', path: '/api/v2/units/{unitId}/switches', desc: 'List switches', hint: 'All switches registered under a unit', params: ['unitId'] },
+    { method: 'POST', path: '/api/v2/units/{unitId}/switches', desc: 'Add switch', hint: 'Register a new switch with IP and SNMP community', params: ['unitId'], body: '{"name":"SW-1","ip":"192.168.20.211","community":"public","snmp_version":"2c"}' },
+    { method: 'GET', path: '/api/v2/switches/{swId}', desc: 'Get switch', hint: 'Single switch detail by ID', params: ['swId'] },
+    { method: 'PUT', path: '/api/v2/switches/{swId}', desc: 'Update switch', hint: 'Modify name, IP, community, SSH credentials', params: ['swId'], body: '{"name":"SW-1","ip":"192.168.20.211","community":"public"}' },
+    { method: 'DELETE', path: '/api/v2/switches/{swId}', desc: 'Delete switch', hint: 'Remove a switch from the system', params: ['swId'] },
   ]},
   { group: 'Ports', items: [
-    { method: 'GET', path: '/api/v2/switches/{swId}/ports', desc: 'List ports', params: ['swId'] },
-    { method: 'GET', path: '/api/v2/switches/{swId}/ports/descriptions', desc: 'Port descriptions', params: ['swId'] },
-    { method: 'GET', path: '/api/v2/switches/{swId}/ports/{port}', desc: 'Get port', params: ['swId','port'] },
-    { method: 'PUT', path: '/api/v2/switches/{swId}/ports/{port}/admin', desc: 'Set port admin', params: ['swId','port'], body: '{"enabled":true}' },
+    { method: 'GET', path: '/api/v2/switches/{swId}/ports', desc: 'List ports', hint: 'All ports with admin/oper status, speed, traffic', params: ['swId'] },
+    { method: 'GET', path: '/api/v2/switches/{swId}/ports/descriptions', desc: 'Port descriptions', hint: 'Port alias/description strings (ifAlias)', params: ['swId'] },
+    { method: 'GET', path: '/api/v2/switches/{swId}/ports/{port}', desc: 'Get port', hint: 'Single port detail by ifIndex', params: ['swId','port'] },
+    { method: 'PUT', path: '/api/v2/switches/{swId}/ports/{port}/admin', desc: 'Set port admin', hint: 'Enable or disable a port (SNMP SET ifAdminStatus)', params: ['swId','port'], body: '{"enabled":true}' },
   ]},
   { group: 'PoE', items: [
-    { method: 'GET', path: '/api/v2/switches/{swId}/poe', desc: 'PoE support', params: ['swId'] },
-    { method: 'GET', path: '/api/v2/switches/{swId}/poe/report', desc: 'PoE report', params: ['swId'] },
-    { method: 'PUT', path: '/api/v2/switches/{swId}/poe/{port}', desc: 'Set PoE', params: ['swId','port'], body: '{"enabled":true}' },
+    { method: 'GET', path: '/api/v2/switches/{swId}/poe', desc: 'PoE support', hint: 'Check if switch supports PoE', params: ['swId'] },
+    { method: 'GET', path: '/api/v2/switches/{swId}/poe/report', desc: 'PoE report', hint: 'Per-port power consumption in watts', params: ['swId'] },
+    { method: 'PUT', path: '/api/v2/switches/{swId}/poe/{port}', desc: 'Set PoE', hint: 'Enable or disable PoE on a port', params: ['swId','port'], body: '{"enabled":true}' },
   ]},
   { group: 'Switch Info', items: [
-    { method: 'GET', path: '/api/v2/switches/{swId}/cpu', desc: 'CPU usage', params: ['swId'] },
-    { method: 'GET', path: '/api/v2/switches/{swId}/stats', desc: 'Switch stats', params: ['swId'] },
-    { method: 'GET', path: '/api/v2/switches/{swId}/vlans', desc: 'VLANs', params: ['swId'] },
-    { method: 'GET', path: '/api/v2/switches/{swId}/fdb', desc: 'FDB table', params: ['swId'] },
-    { method: 'POST', path: '/api/v2/switches/{swId}/reboot', desc: 'Reboot switch', params: ['swId'] },
+    { method: 'GET', path: '/api/v2/switches/{swId}/cpu', desc: 'CPU usage', hint: 'Current CPU utilization percentage', params: ['swId'] },
+    { method: 'GET', path: '/api/v2/switches/{swId}/stats', desc: 'Switch stats', hint: 'Per-port traffic counters (in/out octets, errors)', params: ['swId'] },
+    { method: 'GET', path: '/api/v2/switches/{swId}/vlans', desc: 'VLANs', hint: 'VLAN configuration and port membership', params: ['swId'] },
+    { method: 'GET', path: '/api/v2/switches/{swId}/fdb', desc: 'FDB table', hint: 'MAC forwarding database (which MAC on which port)', params: ['swId'] },
+    { method: 'POST', path: '/api/v2/switches/{swId}/reboot', desc: 'Reboot switch', hint: 'Reboot via SSH CLI (profile-defined commands)', params: ['swId'] },
+    { method: 'GET', path: '/api/v2/switches/{swId}/capabilities', desc: 'Switch capabilities', hint: 'Auto-detect profile, show capability matrix and methods', params: ['swId'] },
+  ]},
+  { group: 'SSH', items: [
+    { method: 'POST', path: '/api/v2/switches/{swId}/ssh/test', desc: 'Test SSH', hint: 'Verify SSH login and run a basic command', params: ['swId'] },
+    { method: 'POST', path: '/api/v2/switches/{swId}/ssh/exec', desc: 'Execute CLI commands', hint: 'Run arbitrary CLI commands via SSH session', params: ['swId'], body: '{"commands":["show version"]}' },
   ]},
   { group: 'SNMP', items: [
-    { method: 'POST', path: '/api/v2/snmp/test', desc: 'SNMP test', body: '{"ip":"192.168.20.211","community":"public","version":"2c"}' },
-    { method: 'POST', path: '/api/v2/snmp/query', desc: 'SNMP query', body: '{"ip":"192.168.20.211","community":"public","version":"2c","operation":"get","oid":".1.3.6.1.2.1.1.1.0"}' },
-    { method: 'POST', path: '/api/v2/snmp/discovery', desc: 'Discovery', body: '{"subnet":"192.168.20.0/24","community":"public","version":"2c"}' },
+    { method: 'POST', path: '/api/v2/snmp/test', desc: 'SNMP test', hint: 'Test SNMP connectivity, returns sysDescr/sysName/sysObjectID', body: '{"ip":"192.168.20.211","community":"public","version":"2c"}' },
+    { method: 'POST', path: '/api/v2/snmp/query', desc: 'SNMP query', hint: 'GET or WALK a specific OID on any IP', body: '{"ip":"192.168.20.211","community":"public","version":"2c","operation":"get","oid":".1.3.6.1.2.1.1.1.0"}' },
+    { method: 'POST', path: '/api/v2/snmp/discovery', desc: 'Discovery', hint: 'Scan a subnet for SNMP-enabled devices', body: '{"subnet":"192.168.20.0/24","community":"public","version":"2c"}' },
   ]},
   { group: 'Tools', items: [
-    { method: 'POST', path: '/api/v2/tools/ping', desc: 'Ping', body: '{"host":"192.168.20.211"}' },
-    { method: 'POST', path: '/api/v2/tools/traceroute', desc: 'Traceroute', body: '{"host":"192.168.20.211"}' },
-    { method: 'POST', path: '/api/v2/tools/arping', desc: 'ARP ping', body: '{"host":"192.168.20.211"}' },
-    { method: 'POST', path: '/api/v2/tools/dad-check', desc: 'DAD check', body: '{"host":"192.168.20.211"}' },
-    { method: 'GET', path: '/api/v2/tools/tasks/{taskId}', desc: 'Get task result', params: ['taskId'] },
+    { method: 'POST', path: '/api/v2/tools/ping', desc: 'Ping', hint: 'Async ICMP ping, returns task_id to poll', body: '{"host":"192.168.20.211"}' },
+    { method: 'POST', path: '/api/v2/tools/traceroute', desc: 'Traceroute', hint: 'Async traceroute, returns task_id to poll', body: '{"host":"192.168.20.211"}' },
+    { method: 'POST', path: '/api/v2/tools/arping', desc: 'ARP ping', hint: 'Layer 2 ARP ping to detect host on local segment', body: '{"host":"192.168.20.211"}' },
+    { method: 'POST', path: '/api/v2/tools/dad-check', desc: 'DAD check', hint: 'Duplicate Address Detection — check IP conflict', body: '{"host":"192.168.20.211"}' },
+    { method: 'GET', path: '/api/v2/tools/tasks/{taskId}', desc: 'Get task result', hint: 'Poll async task status (running/finish) and output', params: ['taskId'] },
   ]},
   { group: 'MAC Location', items: [
-    { method: 'GET', path: '/api/v2/units/{unitId}/mac/{mac}', desc: 'Locate MAC', params: ['unitId','mac'] },
-    { method: 'GET', path: '/api/v2/units/{unitId}/mac/{mac}/ip', desc: 'MAC to IP', params: ['unitId','mac'] },
-    { method: 'GET', path: '/api/v2/units/{unitId}/ip/{ip}/mac', desc: 'IP to MAC', params: ['unitId','ip'] },
-    { method: 'POST', path: '/api/v2/units/{unitId}/topology/rebuild', desc: 'Rebuild topology', params: ['unitId'] },
-    { method: 'GET', path: '/api/v2/units/{unitId}/blocked', desc: 'List blocked MACs', params: ['unitId'] },
-    { method: 'POST', path: '/api/v2/units/{unitId}/blocked', desc: 'Block MAC', params: ['unitId'], body: '{"mac":"aa:bb:cc:dd:ee:ff","reason":"test"}' },
-    { method: 'DELETE', path: '/api/v2/units/{unitId}/blocked/{mac}', desc: 'Unblock MAC', params: ['unitId','mac'] },
+    { method: 'GET', path: '/api/v2/units/{unitId}/mac/{mac}', desc: 'Locate MAC', hint: 'Find which switch/port a MAC is connected to', params: ['unitId','mac'] },
+    { method: 'GET', path: '/api/v2/units/{unitId}/mac/{mac}/ip', desc: 'MAC to IP', hint: 'Resolve MAC address to IP via ARP table walk', params: ['unitId','mac'] },
+    { method: 'GET', path: '/api/v2/units/{unitId}/ip/{ip}/mac', desc: 'IP to MAC', hint: 'Resolve IP to MAC via ARP table walk', params: ['unitId','ip'] },
+    { method: 'POST', path: '/api/v2/units/{unitId}/topology/rebuild', desc: 'Rebuild topology', hint: 'Clear MAC cache and re-walk FDB on all switches', params: ['unitId'] },
+    { method: 'GET', path: '/api/v2/units/{unitId}/blocked', desc: 'List blocked MACs', hint: 'All MACs currently isolated (port disabled)', params: ['unitId'] },
+    { method: 'POST', path: '/api/v2/units/{unitId}/blocked', desc: 'Block MAC', hint: 'Locate MAC, disable its port, record in DB', params: ['unitId'], body: '{"mac":"aa:bb:cc:dd:ee:ff","reason":"test"}' },
+    { method: 'DELETE', path: '/api/v2/units/{unitId}/blocked/{mac}', desc: 'Unblock MAC', hint: 'Re-enable port and remove block record', params: ['unitId','mac'] },
   ]},
   { group: 'MIB', items: [
-    { method: 'GET', path: '/api/v2/mibs/modules', desc: 'List MIB modules' },
-    { method: 'GET', path: '/api/v2/mibs/lookup?name=sysDescr', desc: 'Lookup by name' },
-    { method: 'GET', path: '/api/v2/mibs/resolve?oid=1.3.6.1.2.1.1.1', desc: 'Resolve OID' },
-    { method: 'GET', path: '/api/v2/mibs/search?q=system', desc: 'Search MIBs' },
+    { method: 'GET', path: '/api/v2/mibs/modules', desc: 'List MIB modules', hint: 'All loaded MIB module names' },
+    { method: 'GET', path: '/api/v2/mibs/lookup?name=sysDescr', desc: 'Lookup by name', hint: 'Find OID by MIB object name' },
+    { method: 'GET', path: '/api/v2/mibs/resolve?oid=1.3.6.1.2.1.1.1', desc: 'Resolve OID', hint: 'Translate numeric OID to human-readable name' },
+    { method: 'GET', path: '/api/v2/mibs/search?q=system', desc: 'Search MIBs', hint: 'Search MIB objects by keyword' },
   ]},
   { group: 'Onboarding', items: [
-    { method: 'GET', path: '/api/v2/onboarding', desc: 'List cases' },
-    { method: 'POST', path: '/api/v2/onboarding', desc: 'Create case', body: '{"vendor":"cisco","model":"C2960X","firmware":"15.2","support_tier":"A","customer":"lab","owner":"kaiser"}' },
-    { method: 'GET', path: '/api/v2/onboarding/{id}', desc: 'Get case', params: ['id'] },
-    { method: 'DELETE', path: '/api/v2/onboarding/{id}', desc: 'Delete case', params: ['id'] },
-    { method: 'POST', path: '/api/v2/onboarding/{id}/fingerprint', desc: 'Submit fingerprint', params: ['id'], body: '{"sys_object_id":".1.3.6.1.4.1.9.1.1208","sys_descr":"Cisco IOS","ip":"192.168.20.211","community":"public","snmp_version":"2c"}' },
-    { method: 'POST', path: '/api/v2/onboarding/{id}/collect', desc: 'Auto-collect (async)', params: ['id'] },
-    { method: 'POST', path: '/api/v2/onboarding/{id}/evidence', desc: 'Upload evidence', params: ['id'] },
-    { method: 'POST', path: '/api/v2/onboarding/{id}/analyze', desc: 'Analyze evidence', params: ['id'] },
-    { method: 'GET', path: '/api/v2/onboarding/{id}/drafts', desc: 'Get drafts', params: ['id'] },
-    { method: 'POST', path: '/api/v2/onboarding/{id}/approve', desc: 'Approve & deploy', params: ['id'] },
+    { method: 'GET', path: '/api/v2/onboarding', desc: 'List cases', hint: 'All device onboarding cases with status' },
+    { method: 'POST', path: '/api/v2/onboarding', desc: 'Create case', hint: 'Start onboarding a new switch model (vendor+model must be unique)', body: '{"vendor":"cisco","model":"C2960X","firmware":"15.2","support_tier":"A","customer":"lab","owner":"kaiser"}' },
+    { method: 'GET', path: '/api/v2/onboarding/{id}', desc: 'Get case', hint: 'Case detail with current status', params: ['id'] },
+    { method: 'DELETE', path: '/api/v2/onboarding/{id}', desc: 'Delete case', hint: 'Remove case and its evidence/draft files', params: ['id'] },
+    { method: 'POST', path: '/api/v2/onboarding/{id}/fingerprint', desc: 'Submit fingerprint', hint: 'Save sysObjectID, sysDescr, IP, community for the case', params: ['id'], body: '{"sys_object_id":".1.3.6.1.4.1.9.1.1208","sys_descr":"Cisco IOS","ip":"192.168.20.211","community":"public","snmp_version":"2c"}' },
+    { method: 'POST', path: '/api/v2/onboarding/{id}/collect', desc: 'Auto-collect (async)', hint: 'Walk standard/bridge/PoE/vendor MIBs automatically, returns task_id', params: ['id'] },
+    { method: 'POST', path: '/api/v2/onboarding/{id}/evidence', desc: 'Upload evidence', hint: 'Upload .walk or .txt file manually (multipart form)', params: ['id'] },
+    { method: 'POST', path: '/api/v2/onboarding/{id}/analyze', desc: 'Analyze evidence', hint: 'Run capability detection on collected walks, generate drafts', params: ['id'] },
+    { method: 'GET', path: '/api/v2/onboarding/{id}/drafts', desc: 'Get drafts', hint: 'View AI-generated capability matrix and vendor profile', params: ['id'] },
+    { method: 'POST', path: '/api/v2/onboarding/{id}/approve', desc: 'Approve & deploy', hint: 'Copy finalized profiles to production directories', params: ['id'] },
   ]},
 ];
 
@@ -847,7 +1000,8 @@ function renderAPI(c) {
     for (let i = 0; i < g.items.length; i++) {
       const item = g.items[i];
       const methodColor = {GET:'#6ee7b7',POST:'#7dd3fc',PUT:'#fde047',DELETE:'#fca5a5'}[item.method]||'#94a3b8';
-      opts += `<option value="${g.group}:${i}" data-method="${item.method}">${item.method} ${item.desc}</option>`;
+      const hint = item.hint ? ' — ' + item.hint : '';
+      opts += `<option value="${g.group}:${i}" data-method="${item.method}">${item.method} ${item.desc}${hint}</option>`;
     }
     opts += '</optgroup>';
   }
@@ -914,6 +1068,7 @@ function renderAPI(c) {
         <tr><td>SSH</td><td><code>POST /api/v2/switches/{swId}/ssh/test</code></td><td>Test SSH connectivity</td><td><span class="status status-draft">2b</span></td></tr>
         <tr><td>SSH</td><td><code>POST /api/v2/switches/{swId}/ssh/exec</code></td><td>Execute CLI commands</td><td><span class="status status-draft">2b</span></td></tr>
         <tr><td>Reboot</td><td><code>POST /api/v2/switches/{swId}/reboot</code></td><td>Reboot via profile chain</td><td><span class="status status-draft">2b</span></td></tr>
+        <tr><td>Capabilities</td><td><code>GET /api/v2/switches/{swId}/capabilities</code></td><td>Detect profile + capability matrix</td><td><span class="status status-approved">done</span></td></tr>
         <tr><td>MIB</td><td><code>/api/v2/mibs/*</code></td><td>MIB upload, lookup, resolve, search</td><td><span class="status status-approved">done</span></td></tr>
         <tr><td>Onboarding</td><td><code>/api/v2/onboarding/*</code></td><td>Device enrollment SOP workflow</td><td><span class="status status-approved">done</span></td></tr>
         <tr><td>Profiles</td><td><code>GET /api/v2/profiles</code></td><td>4-layer profile architecture</td><td><span class="status status-approved">done</span></td></tr>

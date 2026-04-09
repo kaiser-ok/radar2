@@ -1,0 +1,7 @@
+sysObjectID: .1.3.6.1.4.1.9.1.122
+sysDescr: "Cisco IOS Software, 2600 Software (C2691-ENTSERVICESK9-M), Version 12.4(13b), RELEASE SOFTWARE (fc3)\r\nTechnical Support: http://www.cisco.com/techsupport\r\nCopyright (c) 1986-2007 by Cisco Systems, Inc.\r\nCompiled Tue 24-Apr-07 15:33 by prod_rel_team"
+sysName: Cisco-2691
+snmp_version: 2c
+community: public
+ip: 192.168.30.132
+ssh_available: false

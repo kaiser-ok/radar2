@@ -42,11 +42,65 @@ func (s *FDBService) GetFDB(sw *model.Switch) ([]model.FDBEntry, error) {
 	}
 
 	results, err = s.snmpClient.BulkWalk(sw.IP, sw.Community, ver, bridgeOID)
-	if err != nil {
-		return nil, fmt.Errorf("walk FDB: %w", err)
+	if err == nil && len(results) > 0 {
+		return parseBridgeFDB(results), nil
 	}
 
-	return parseBridgeFDB(results), nil
+	// Cisco per-VLAN STP: FDB is only accessible via community@vlan
+	// Discover VLANs from Cisco vtpVlanState, then walk FDB per VLAN
+	vlans := s.discoverCiscoVLANs(sw.IP, sw.Community, ver)
+	if len(vlans) > 0 {
+		return s.walkFDBPerVLAN(sw.IP, sw.Community, ver, bridgeOID, vlans), nil
+	}
+
+	return nil, fmt.Errorf("walk FDB: no entries found")
+}
+
+// discoverCiscoVLANs returns active VLAN IDs from Cisco vtpVlanState.
+func (s *FDBService) discoverCiscoVLANs(ip, community string, ver snmp.SnmpVersion) []int {
+	// vtpVlanState: .1.3.6.1.4.1.9.9.46.1.3.1.1.2
+	results, err := s.snmpClient.BulkWalk(ip, community, ver, ".1.3.6.1.4.1.9.9.46.1.3.1.1.2")
+	if err != nil || len(results) == 0 {
+		return nil
+	}
+
+	var vlans []int
+	for _, r := range results {
+		// OID: ...2.1.{vlanId} — last component is the VLAN ID
+		parts := strings.Split(r.OID, ".")
+		if len(parts) == 0 {
+			continue
+		}
+		var vlanID int
+		fmt.Sscanf(parts[len(parts)-1], "%d", &vlanID)
+		// Skip internal VLANs (1002-1005) and VLAN 0
+		if vlanID > 0 && vlanID < 1002 {
+			vlans = append(vlans, vlanID)
+		}
+	}
+	return vlans
+}
+
+// walkFDBPerVLAN walks FDB using community@vlan for each VLAN.
+func (s *FDBService) walkFDBPerVLAN(ip, community string, ver snmp.SnmpVersion, bridgeOID string, vlans []int) []model.FDBEntry {
+	var allEntries []model.FDBEntry
+	seen := make(map[string]bool) // deduplicate by MAC
+
+	for _, vlan := range vlans {
+		vlanCommunity := fmt.Sprintf("%s@%d", community, vlan)
+		results, err := s.snmpClient.BulkWalk(ip, vlanCommunity, ver, bridgeOID)
+		if err != nil || len(results) == 0 {
+			continue
+		}
+		for _, entry := range parseBridgeFDB(results) {
+			if !seen[entry.MAC] {
+				entry.VLAN = vlan
+				allEntries = append(allEntries, entry)
+				seen[entry.MAC] = true
+			}
+		}
+	}
+	return allEntries
 }
 
 // parseBridgeFDB parses dot1dTpFdbTable results.
@@ -55,7 +109,7 @@ func parseBridgeFDB(results []snmp.Result) []model.FDBEntry {
 	var entries []model.FDBEntry
 	for _, r := range results {
 		port, ok := r.AsInt()
-		if !ok || port <= 0 {
+		if !ok || port < 0 {
 			continue
 		}
 		mac := extractMACFromOID(r.OID)
@@ -76,7 +130,7 @@ func parseQBridgeFDB(results []snmp.Result) []model.FDBEntry {
 	var entries []model.FDBEntry
 	for _, r := range results {
 		port, ok := r.AsInt()
-		if !ok || port <= 0 {
+		if !ok || port < 0 {
 			continue
 		}
 		mac, vlan := extractMACAndVLANFromOID(r.OID)

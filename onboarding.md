@@ -6,6 +6,24 @@ Standard procedure for adding support for a new switch model. The principle is:
 
 > **Evidence first, code never.** New device = YAML profiles only, no Go code changes.
 
+### Full Automatic Flow
+
+The web UI supports a fully automatic onboarding pipeline:
+
+> **Test → Create → Collect → Analyze → Approve → device is recognized and supported.**
+
+When enrolling a new device (including new vendors not yet in the system), the pipeline:
+1. **Test** — SNMP connectivity test, auto-detects vendor from sysObjectID enterprise OID, auto-fills model/firmware from sysDescr/sysName
+2. **Create** — creates case with auto-selected support tier (A for known vendors, C for new vendors, user can override)
+3. **Collect** — walks standard, bridge, PoE, and vendor MIB trees automatically
+4. **Analyze** — generates all 3 profile drafts automatically:
+   - **Fingerprint** (Layer 1) — sysObjectID prefix + sysDescr matching rules
+   - **Capability matrix** (Layer 2) — detected capabilities with confidence levels
+   - **Vendor profile** (Layer 3) — OID mappings for each supported capability
+5. **Approve** — auto-copies drafts to `final/` (if not manually reviewed), then deploys all profiles to production directories (`profiles/fingerprints/`, `profiles/capabilities/`, `profiles/vendors/`)
+
+After approval, the device is immediately recognized by the system's `ProfileRegistry.DetectDevice()` on next startup/reload.
+
 ## Support Tiers
 
 | Tier | Scope | Capabilities |
@@ -130,7 +148,7 @@ onboarding/{vendor}_{model}/evidence/
 
 **API:** `POST /api/v2/onboarding/{id}/analyze`
 
-The analyzer scans walk files and produces:
+The analyzer scans walk files and produces fingerprint, capability matrix, and vendor profile drafts:
 
 ```yaml
 # onboarding/{vendor}_{model}/ai_drafts/capability_matrix.yaml
@@ -208,7 +226,7 @@ onboarding/{vendor}_{model}/final/
 └── snmprec/                → copy to tests/snmprec/{vendor}/
 ```
 
-**API:** `POST /api/v2/onboarding/{id}/approve` → deploys profiles to production
+**API:** `POST /api/v2/onboarding/{id}/approve` → auto-copies drafts to `final/` if not manually reviewed, then deploys profiles to production
 
 ### Stage 5: Test Execution
 

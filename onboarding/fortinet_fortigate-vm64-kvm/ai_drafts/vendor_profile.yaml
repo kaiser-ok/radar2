@@ -1,0 +1,43 @@
+id: fortinet_fortigate-vm64-kvm
+mappings:
+    interfaces.read:
+        _confidence: high
+        _evidence: 'ifIndex: 88 entries; ifDescr: 32 entries; ifAdminStatus: 8 entries; ifOperStatus: 8 entries'
+        primary:
+            method: snmp
+            table: .1.3.6.1.2.1.2.2.1.1
+    port.admin.read:
+        _confidence: high
+        _evidence: 'ifAdminStatus: 8 entries'
+        primary:
+            method: snmp
+            oid_template: .1.3.6.1.2.1.2.2.1.7.{ifIndex}
+    port.admin.write:
+        _confidence: low
+        _evidence: 'ifAdminStatus (SET not tested from walk): 8 entries; NOTE: write capability inferred from OID presence, SET not tested'
+        primary:
+            method: snmp
+            oid_template: .1.3.6.1.2.1.2.2.1.7.{ifIndex}
+    port.oper.read:
+        _confidence: high
+        _evidence: 'ifOperStatus: 8 entries'
+        primary:
+            method: snmp
+            oid_template: .1.3.6.1.2.1.2.2.1.8.{ifIndex}
+    port.traffic.read:
+        _confidence: high
+        _evidence: 'ifInOctets: 8 entries; ifOutOctets: 8 entries'
+        primary:
+            method: snmp
+            table: .1.3.6.1.2.1.2.2.1.10
+    system.read:
+        _confidence: high
+        _evidence: 'sysDescr: 1 entries; sysObjectID: 1 entries; sysUpTime: 1 entries; sysName: 1 entries'
+        primary:
+            method: snmp
+            table: .1.3.6.1.2.1.1.1
+protocols:
+    snmp:
+        version: v2c
+    ssh:
+        enabled: true

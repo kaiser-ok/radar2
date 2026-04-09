@@ -1,0 +1,10 @@
+id: cisco_2691
+match:
+    sysdescr_contains:
+        - "Cisco IOS Software, 2600 Software (C2691-ENTSERVICESK9-M), Version 12.4(13b), RELEASE SOFTWARE (fc3)\r\nTechnical Support: http://www.cisco.com/techsupport\r\nCopyright (c) 1986-2007 by Cisco Systems, Inc.\r\nCompiled Tue 24-Apr-07 15:33 by prod_rel_team"
+        - cisco
+    sysobjectid_prefix:
+        - 1.3.6.1.4.1.9.
+os: cisco
+priority: 50
+vendor: cisco

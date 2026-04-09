@@ -1,0 +1,42 @@
+capabilities:
+    interfaces.read:
+        confidence: high
+        evidence: 'ifIndex: 88 entries; ifDescr: 32 entries; ifAdminStatus: 8 entries; ifOperStatus: 8 entries'
+        supported: true
+    mac_table.read:
+        confidence: high
+        evidence: 'dot1dTpFdb (bridge MIB): not found; dot1qTpFdb (Q-BRIDGE): not found'
+        supported: false
+    poe.control.write:
+        confidence: high
+        evidence: 'pethPsePortAdminEnable (SET not tested): not found'
+        supported: false
+    poe.status.read:
+        confidence: high
+        evidence: 'pethPsePort: not found; pethMainPse: not found'
+        supported: false
+    port.admin.read:
+        confidence: high
+        evidence: 'ifAdminStatus: 8 entries'
+        supported: true
+    port.admin.write:
+        confidence: low
+        evidence: 'ifAdminStatus (SET not tested from walk): 8 entries; NOTE: write capability inferred from OID presence, SET not tested'
+        supported: true
+    port.oper.read:
+        confidence: high
+        evidence: 'ifOperStatus: 8 entries'
+        supported: true
+    port.traffic.read:
+        confidence: high
+        evidence: 'ifInOctets: 8 entries; ifOutOctets: 8 entries'
+        supported: true
+    system.read:
+        confidence: high
+        evidence: 'sysDescr: 1 entries; sysObjectID: 1 entries; sysUpTime: 1 entries; sysName: 1 entries'
+        supported: true
+    vlan.read:
+        confidence: high
+        evidence: 'dot1qVlanStatic: not found; dot1qVlanCurrent: not found'
+        supported: false
+id: fortinet_fortigate-vm64-kvm

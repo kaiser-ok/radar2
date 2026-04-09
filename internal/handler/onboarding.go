@@ -202,3 +202,20 @@ func (h *OnboardingHandler) Approve(w http.ResponseWriter, r *http.Request) {
 
 	JSON(w, http.StatusOK, map[string]string{"status": "approved", "message": "profiles deployed to production"})
 }
+
+// POST /api/v2/onboarding/{id}/verify
+func (h *OnboardingHandler) Verify(w http.ResponseWriter, r *http.Request) {
+	id, err := URLParamInt64(r, "id")
+	if err != nil {
+		Error(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+
+	results, err := h.svc.Verify(id)
+	if err != nil {
+		Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{"results": results})
+}

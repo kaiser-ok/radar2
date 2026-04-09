@@ -1,0 +1,5 @@
+vendor: fortinet
+model: FortiGate-VM64-KVM
+customer: lab
+support_tier: B
+owner: kaiser

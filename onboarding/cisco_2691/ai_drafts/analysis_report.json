@@ -1,0 +1,95 @@
+{
+  "sys_descr": "Cisco IOS Software, 2600 Software (C2691-ENTSERVICESK9-M), Version 12.4(13b), RELEASE SOFTWARE (fc3)",
+  "sys_object_id": ".1.3.6.1.4.1.9.1.122",
+  "sys_name": "Cisco-2691",
+  "port_count": 3,
+  "capabilities": [
+    {
+      "capability": "interfaces.read",
+      "supported": true,
+      "confidence": "high",
+      "evidence": "ifIndex: 33 entries; ifDescr: 12 entries; ifAdminStatus: 3 entries; ifOperStatus: 3 entries",
+      "oids_found": [
+        ".1.3.6.1.2.1.2.2.1.1",
+        ".1.3.6.1.2.1.2.2.1.2",
+        ".1.3.6.1.2.1.2.2.1.7",
+        ".1.3.6.1.2.1.2.2.1.8"
+      ]
+    },
+    {
+      "capability": "port.oper.read",
+      "supported": true,
+      "confidence": "high",
+      "evidence": "ifOperStatus: 3 entries",
+      "oids_found": [
+        ".1.3.6.1.2.1.2.2.1.8"
+      ]
+    },
+    {
+      "capability": "port.traffic.read",
+      "supported": true,
+      "confidence": "high",
+      "evidence": "ifInOctets: 3 entries; ifOutOctets: 3 entries",
+      "oids_found": [
+        ".1.3.6.1.2.1.2.2.1.10",
+        ".1.3.6.1.2.1.2.2.1.16"
+      ]
+    },
+    {
+      "capability": "mac_table.read",
+      "supported": false,
+      "confidence": "high",
+      "evidence": "dot1dTpFdb (bridge MIB): not found; dot1qTpFdb (Q-BRIDGE): not found"
+    },
+    {
+      "capability": "vlan.read",
+      "supported": false,
+      "confidence": "high",
+      "evidence": "dot1qVlanStatic: not found; dot1qVlanCurrent: not found"
+    },
+    {
+      "capability": "poe.status.read",
+      "supported": false,
+      "confidence": "high",
+      "evidence": "pethPsePort: not found; pethMainPse: not found"
+    },
+    {
+      "capability": "poe.control.write",
+      "supported": false,
+      "confidence": "high",
+      "evidence": "pethPsePortAdminEnable (SET not tested): not found"
+    },
+    {
+      "capability": "system.read",
+      "supported": true,
+      "confidence": "high",
+      "evidence": "sysDescr: 1 entries; sysObjectID: 1 entries; sysUpTime: 1 entries; sysName: 1 entries",
+      "oids_found": [
+        ".1.3.6.1.2.1.1.1",
+        ".1.3.6.1.2.1.1.2",
+        ".1.3.6.1.2.1.1.3",
+        ".1.3.6.1.2.1.1.5"
+      ]
+    },
+    {
+      "capability": "port.admin.read",
+      "supported": true,
+      "confidence": "high",
+      "evidence": "ifAdminStatus: 3 entries",
+      "oids_found": [
+        ".1.3.6.1.2.1.2.2.1.7"
+      ]
+    },
+    {
+      "capability": "port.admin.write",
+      "supported": true,
+      "confidence": "low",
+      "evidence": "ifAdminStatus (SET not tested from walk): 3 entries; NOTE: write capability inferred from OID presence, SET not tested",
+      "oids_found": [
+        ".1.3.6.1.2.1.2.2.1.7"
+      ]
+    }
+  ],
+  "vendor_tree": ".1.3.6.1.4.1.9",
+  "summary": "Device: Cisco IOS Software, 2600 Software (C2691-ENTSERVICESK9-M), Version 12.4(13b), RELEASE SOFTWARE (fc3) (.1.3.6.1.4.1.9.1.122), 3 ports, 6/10 capabilities detected"
+}

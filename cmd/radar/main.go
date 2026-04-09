@@ -220,6 +220,8 @@ func main() {
 
 		// Device profiles (4-layer architecture)
 		r.Get("/profiles", profilesH.GetAll)
+		r.Post("/profiles/overrides", profilesH.CreateOverride)
+		r.Delete("/profiles/overrides/{filename}", profilesH.DeleteOverride)
 
 		// Onboarding workflow
 		r.Post("/onboarding", onboardingH.CreateCase)
@@ -232,6 +234,7 @@ func main() {
 		r.Post("/onboarding/{id}/analyze", onboardingH.Analyze)
 		r.Get("/onboarding/{id}/drafts", onboardingH.GetDrafts)
 		r.Post("/onboarding/{id}/approve", onboardingH.Approve)
+		r.Post("/onboarding/{id}/verify", onboardingH.Verify)
 
 		// TODO Phase 7: RSPAN
 		// r.Route("/rspan", func(r chi.Router) { ... })

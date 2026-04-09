@@ -494,6 +494,11 @@ func (s *Service) Analyze(id int64) (*AnalysisReport, error) {
 	reportJSON, _ := json.MarshalIndent(report, "", "  ")
 	os.WriteFile(filepath.Join(draftsDir, "analysis_report.json"), reportJSON, 0644)
 
+	// Generate fingerprint draft from fingerprint.yaml
+	fpDraft := generateFingerprintDraft(c, s.baseDir)
+	fpDraftYAML, _ := yaml.Marshal(fpDraft)
+	os.WriteFile(filepath.Join(draftsDir, "fingerprint.yaml"), fpDraftYAML, 0644)
+
 	// Generate capability matrix draft
 	capMatrix := generateCapabilityDraft(c, report)
 	capYAML, _ := yaml.Marshal(capMatrix)
@@ -552,6 +557,7 @@ func (s *Service) GetDrafts(id int64) (map[string]interface{}, error) {
 }
 
 // Approve deploys the finalized profiles to production.
+// If final/ is empty, auto-copies drafts from ai_drafts/ first.
 func (s *Service) Approve(id int64) error {
 	c, err := s.GetCase(id)
 	if err != nil {
@@ -559,6 +565,43 @@ func (s *Service) Approve(id int64) error {
 	}
 
 	finalDir := filepath.Join(s.baseDir, c.Dir, "final")
+	draftsDir := filepath.Join(s.baseDir, c.Dir, "ai_drafts")
+
+	// Generate fingerprint draft if missing in ai_drafts/
+	fpDraftPath := filepath.Join(draftsDir, "fingerprint.yaml")
+	if _, err := os.Stat(fpDraftPath); os.IsNotExist(err) {
+		fpDraft := generateFingerprintDraft(c, s.baseDir)
+		if fpDraftYAML, err := yaml.Marshal(fpDraft); err == nil {
+			os.MkdirAll(draftsDir, 0755)
+			os.WriteFile(fpDraftPath, fpDraftYAML, 0644)
+		}
+	}
+
+	// Auto-copy drafts to final/ if final/ has no profile files yet
+	draftFiles := []string{"fingerprint.yaml", "capability_matrix.yaml", "vendor_profile.yaml"}
+	hasFinal := false
+	for _, f := range draftFiles {
+		if _, err := os.Stat(filepath.Join(finalDir, f)); err == nil {
+			hasFinal = true
+			break
+		}
+	}
+	if !hasFinal {
+		os.MkdirAll(finalDir, 0755)
+		for _, f := range draftFiles {
+			copyIfExists(filepath.Join(draftsDir, f), filepath.Join(finalDir, f))
+		}
+		// Also copy snmprec files
+		if entries, err := os.ReadDir(draftsDir); err == nil {
+			snmprecDir := filepath.Join(finalDir, "snmprec")
+			os.MkdirAll(snmprecDir, 0755)
+			for _, e := range entries {
+				if strings.HasSuffix(e.Name(), ".snmprec") {
+					copyIfExists(filepath.Join(draftsDir, e.Name()), filepath.Join(snmprecDir, e.Name()))
+				}
+			}
+		}
+	}
 
 	// Copy fingerprint to profiles/fingerprints/
 	copyIfExists(
@@ -602,6 +645,102 @@ func (s *Service) Approve(id int64) error {
 	return s.updateStatus(id, StatusApproved)
 }
 
+// VerifyResult holds the result of testing one capability against the real device.
+type VerifyResult struct {
+	Capability string `json:"capability"`
+	Status     string `json:"status"` // ok, fail, skip
+	Detail     string `json:"detail"`
+	Count      int    `json:"count,omitempty"`
+}
+
+// Verify tests the deployed profile capabilities against the real device using SNMP.
+func (s *Service) Verify(id int64) ([]VerifyResult, error) {
+	if s.snmp == nil {
+		return nil, fmt.Errorf("SNMP client not configured")
+	}
+
+	c, err := s.GetCase(id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Read fingerprint for connection info
+	fpPath := filepath.Join(s.baseDir, c.Dir, "fingerprint.yaml")
+	fpData, err := os.ReadFile(fpPath)
+	if err != nil {
+		return nil, fmt.Errorf("fingerprint not found")
+	}
+	var fp FingerprintRequest
+	if err := yaml.Unmarshal(fpData, &fp); err != nil {
+		return nil, err
+	}
+
+	version := snmp.Version2c
+	if fp.SNMPVersion == "1" {
+		version = snmp.Version1
+	}
+
+	// Define verification tests: capability → OIDs to check
+	tests := []struct {
+		capability string
+		oids       []string
+		desc       string
+	}{
+		{"system.read", []string{".1.3.6.1.2.1.1.1.0", ".1.3.6.1.2.1.1.5.0"}, "sysDescr + sysName"},
+		{"interfaces.read", []string{".1.3.6.1.2.1.2.2.1.1"}, "ifIndex table walk"},
+		{"port.admin.read", []string{".1.3.6.1.2.1.2.2.1.7"}, "ifAdminStatus walk"},
+		{"port.oper.read", []string{".1.3.6.1.2.1.2.2.1.8"}, "ifOperStatus walk"},
+		{"port.traffic.read", []string{".1.3.6.1.2.1.2.2.1.10"}, "ifInOctets walk"},
+		{"mac_table.read", []string{".1.3.6.1.2.1.17.4.3.1", ".1.3.6.1.2.1.17.7.1.2.2.1"}, "bridge/Q-BRIDGE FDB"},
+		{"vlan.read", []string{".1.3.6.1.2.1.17.7.1.4.3.1"}, "dot1qVlanStatic"},
+		{"poe.status.read", []string{".1.3.6.1.2.1.105.1.1.1"}, "pethPsePort"},
+	}
+
+	var results []VerifyResult
+
+	for _, t := range tests {
+		vr := VerifyResult{Capability: t.capability}
+
+		// For scalar OIDs (system.read), use Get
+		if t.capability == "system.read" {
+			res, err := s.snmp.Get(fp.IP, fp.Community, version, t.oids)
+			if err != nil {
+				vr.Status = "fail"
+				vr.Detail = err.Error()
+			} else {
+				vr.Status = "ok"
+				vr.Count = len(res)
+				vals := []string{}
+				for _, r := range res {
+					vals = append(vals, r.AsString())
+				}
+				vr.Detail = strings.Join(vals, " | ")
+			}
+		} else {
+			// For table OIDs, try walk on each OID until one works
+			found := false
+			for _, oid := range t.oids {
+				res, err := s.snmp.BulkWalk(fp.IP, fp.Community, version, oid)
+				if err == nil && len(res) > 0 {
+					vr.Status = "ok"
+					vr.Count = len(res)
+					vr.Detail = fmt.Sprintf("%s: %d entries", t.desc, len(res))
+					found = true
+					break
+				}
+			}
+			if !found {
+				vr.Status = "fail"
+				vr.Detail = t.desc + ": no data returned"
+			}
+		}
+
+		results = append(results, vr)
+	}
+
+	return results, nil
+}
+
 func copyIfExists(src, dst string) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
@@ -612,6 +751,45 @@ func copyIfExists(src, dst string) error {
 }
 
 // --- Draft generators ---
+
+func generateFingerprintDraft(c *Case, baseDir string) map[string]interface{} {
+	profileID := fmt.Sprintf("%s_%s", strings.ToLower(c.Vendor), strings.ToLower(strings.ReplaceAll(c.Model, " ", "_")))
+
+	// Read fingerprint.yaml for sysObjectID and sysDescr
+	fpPath := filepath.Join(baseDir, c.Dir, "fingerprint.yaml")
+	var fp FingerprintRequest
+	if data, err := os.ReadFile(fpPath); err == nil {
+		yaml.Unmarshal(data, &fp)
+	}
+
+	// Extract enterprise OID prefix from sysObjectID (e.g. ".1.3.6.1.4.1.12356." from ".1.3.6.1.4.1.12356.101.1.80001")
+	oidPrefixes := []string{}
+	sysOID := strings.TrimPrefix(fp.SysObjectID, ".")
+	if strings.HasPrefix(sysOID, "1.3.6.1.4.1.") {
+		parts := strings.Split(sysOID, ".")
+		if len(parts) >= 7 {
+			oidPrefixes = append(oidPrefixes, strings.Join(parts[:7], ".")+".")
+		}
+	}
+
+	// sysDescr hints — use sysDescr if non-empty, otherwise use vendor name
+	descrContains := []string{}
+	if fp.SysDescr != "" {
+		descrContains = append(descrContains, fp.SysDescr)
+	}
+	descrContains = append(descrContains, c.Vendor)
+
+	return map[string]interface{}{
+		"id":     profileID,
+		"vendor": strings.ToLower(c.Vendor),
+		"os":     strings.ToLower(c.Vendor),
+		"match": map[string]interface{}{
+			"sysobjectid_prefix": oidPrefixes,
+			"sysdescr_contains":  descrContains,
+		},
+		"priority": 50,
+	}
+}
 
 func generateCapabilityDraft(c *Case, report *AnalysisReport) map[string]interface{} {
 	caps := make(map[string]interface{})
