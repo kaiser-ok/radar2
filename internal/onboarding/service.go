@@ -10,10 +10,14 @@ import (
 	"strings"
 	"time"
 
+	"new_radar/internal/mib"
 	"new_radar/internal/snmp"
 
 	"gopkg.in/yaml.v3"
 )
+
+// mibNewParser wraps mib.NewParser for use in onboarding analysis.
+var mibNewParser = mib.NewParser
 
 // CaseStatus tracks the onboarding pipeline state.
 type CaseStatus string
@@ -543,10 +547,46 @@ func (s *Service) Analyze(id int64) (*AnalysisReport, error) {
 		return nil, fmt.Errorf("no .walk files found in evidence directory")
 	}
 
-	// Run analysis
-	report, err := AnalyzeWalks(walkFiles)
-	if err != nil {
-		return nil, err
+	// Check for MIB files in evidence/mibs/
+	mibDir := filepath.Join(evidenceDir, "mibs")
+	var report *AnalysisReport
+
+	if _, err := os.Stat(mibDir); err == nil {
+		// MIB files available — use enhanced analysis
+		parser := mibNewParser()
+		parser.LoadDir(mibDir)
+		// Also load subdirectories
+		if subEntries, err := os.ReadDir(mibDir); err == nil {
+			for _, e := range subEntries {
+				if e.IsDir() {
+					parser.LoadDir(filepath.Join(mibDir, e.Name()))
+				}
+			}
+		}
+
+		// Convert parser OIDs to analyzer format
+		var mibOIDs []MIBOIDEntry
+		for _, entry := range parser.GetAllOIDs() {
+			mibOIDs = append(mibOIDs, MIBOIDEntry{
+				Name:   entry.Name,
+				OID:    entry.OID,
+				Module: entry.Module,
+				Type:   entry.Type,
+				Access: entry.Access,
+			})
+		}
+
+		report, err = AnalyzeWalksWithMIBs(walkFiles, parser, mibOIDs)
+		if err != nil {
+			return nil, err
+		}
+		report.MIBModules = parser.ListModules()
+	} else {
+		// No MIB files — standard analysis
+		report, err = AnalyzeWalks(walkFiles)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Save analysis report

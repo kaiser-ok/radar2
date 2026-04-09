@@ -33,6 +33,8 @@ import (
 	"strings"
 	"time"
 
+	"new_radar/internal/mib"
+
 	"github.com/gosnmp/gosnmp"
 	"gopkg.in/yaml.v3"
 )
@@ -91,10 +93,11 @@ func main() {
 	timeout := flag.Duration("timeout", 10*time.Second, "SNMP timeout per request")
 	retries := flag.Int("retries", 1, "SNMP retries")
 	deep := flag.Bool("deep", true, "Deep collection: Cisco per-VLAN FDB, capability probing")
+	mibsDir := flag.String("mibs", "", "Directory containing vendor MIB files to bundle (optional)")
 	flag.Parse()
 
 	if *ip == "" {
-		fmt.Fprintln(os.Stderr, "Usage: collector -ip <switch-ip> [-community public] [-version 2c] [-output dir] [-deep=true]")
+		fmt.Fprintln(os.Stderr, "Usage: collector -ip <switch-ip> [-community public] [-version 2c] [-output dir] [-mibs ./mibs]")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Collects all SNMP evidence for Radar device onboarding.")
 		fmt.Fprintln(os.Stderr, "Output can be copied directly to the Radar server for import.")
@@ -122,6 +125,9 @@ func main() {
 	fmt.Printf("║ Community: %-25s ║\n", *community)
 	fmt.Printf("║ Version:   SNMPv%-20s ║\n", *version)
 	fmt.Printf("║ Deep mode: %-25v ║\n", *deep)
+	if *mibsDir != "" {
+		fmt.Printf("║ MIBs:      %-25s ║\n", *mibsDir)
+	}
 	fmt.Printf("║ Output:    %-25s ║\n", outDir+"/")
 	fmt.Printf("╚══════════════════════════════════════╝\n\n")
 
@@ -320,6 +326,14 @@ func main() {
 		}
 	}
 
+	// === Step 6: Bundle MIB files and parse for extra OID discovery ===
+	var mibOIDCount int
+	var mibModules []string
+	var mibExtraOIDs []mibDiscoveredOID
+	if *mibsDir != "" {
+		mibOIDCount, mibModules, mibExtraOIDs = bundleAndParseMIBs(*mibsDir, outDir, evidenceDir, vendor, *ip, *community, snmpVer, *timeout, *retries, &allResults)
+	}
+
 	// === Generate report ===
 	totalEntries := 0
 	for _, r := range allResults {
@@ -327,7 +341,7 @@ func main() {
 	}
 	totalDur := time.Since(startTime)
 
-	report := generateReport(fp, intake, vendor, model, firmware, allResults, probeResults, ciscoVLANs, totalEntries, totalDur)
+	report := generateReport(fp, intake, vendor, model, firmware, allResults, probeResults, ciscoVLANs, totalEntries, totalDur, mibModules, mibExtraOIDs, mibOIDCount)
 	os.WriteFile(filepath.Join(outDir, "report.txt"), []byte(report), 0644)
 
 	fmt.Printf("\n╔══════════════════════════════════════╗\n")
@@ -335,6 +349,10 @@ func main() {
 	fmt.Printf("╠══════════════════════════════════════╣\n")
 	fmt.Printf("║ Walk files:  %-23d ║\n", len(allResults))
 	fmt.Printf("║ Total OIDs:  %-23d ║\n", totalEntries)
+	if mibOIDCount > 0 {
+		fmt.Printf("║ MIB modules: %-23d ║\n", len(mibModules))
+		fmt.Printf("║ MIB OIDs:    %-23d ║\n", mibOIDCount)
+	}
 	fmt.Printf("║ Duration:    %-23v ║\n", totalDur.Round(time.Second))
 	fmt.Printf("║ Output:      %-23s ║\n", outDir+"/")
 	fmt.Printf("╚══════════════════════════════════════╝\n\n")
@@ -514,8 +532,186 @@ func vendorExtraWalks(vendor string) []vendorWalk {
 	}
 }
 
+// mibDiscoveredOID represents an OID found in MIB files that yielded walk data.
+type mibDiscoveredOID struct {
+	name   string
+	oid    string
+	module string
+	access string
+	count  int // entries from walk
+}
+
+// bundleAndParseMIBs copies MIB files, parses them, discovers OIDs, and walks any
+// enterprise OIDs found in MIBs that haven't been collected yet.
+func bundleAndParseMIBs(mibsDir, outDir, evidenceDir, vendor, ip, community string,
+	snmpVer gosnmp.SnmpVersion, timeout time.Duration, retries int, allResults *[]walkResult) (int, []string, []mibDiscoveredOID) {
+
+	fmt.Printf("\n[*] Bundling MIB files from %s...\n", mibsDir)
+
+	// Copy MIB files to evidence/mibs/
+	dstMibDir := filepath.Join(outDir, "evidence", "mibs")
+	os.MkdirAll(dstMibDir, 0755)
+
+	mibPatterns := []string{"*.mib", "*.my", "*.txt", "*.MIB"}
+	var copied int
+	for _, pat := range mibPatterns {
+		matches, _ := filepath.Glob(filepath.Join(mibsDir, pat))
+		for _, src := range matches {
+			dst := filepath.Join(dstMibDir, filepath.Base(src))
+			if data, err := os.ReadFile(src); err == nil {
+				os.WriteFile(dst, data, 0644)
+				copied++
+			}
+		}
+	}
+	// Also check subdirectories (vendor-organized MIBs)
+	entries, _ := os.ReadDir(mibsDir)
+	for _, e := range entries {
+		if e.IsDir() {
+			subDir := filepath.Join(mibsDir, e.Name())
+			dstSubDir := filepath.Join(dstMibDir, e.Name())
+			os.MkdirAll(dstSubDir, 0755)
+			for _, pat := range mibPatterns {
+				matches, _ := filepath.Glob(filepath.Join(subDir, pat))
+				for _, src := range matches {
+					dst := filepath.Join(dstSubDir, filepath.Base(src))
+					if data, err := os.ReadFile(src); err == nil {
+						os.WriteFile(dst, data, 0644)
+						copied++
+					}
+				}
+			}
+		}
+	}
+	fmt.Printf("    Copied %d MIB files\n", copied)
+
+	if copied == 0 {
+		return 0, nil, nil
+	}
+
+	// Parse MIBs
+	fmt.Print("    Parsing MIB files... ")
+	parser := mib.NewParser()
+	if err := parser.LoadDir(dstMibDir); err != nil {
+		fmt.Printf("warning: %v\n", err)
+	}
+	// Also load subdirectories
+	subEntries, _ := os.ReadDir(dstMibDir)
+	for _, e := range subEntries {
+		if e.IsDir() {
+			parser.LoadDir(filepath.Join(dstMibDir, e.Name()))
+		}
+	}
+
+	allOIDs := parser.GetAllOIDs()
+	modules := parser.ListModules()
+	fmt.Printf("OK (%d modules, %d OIDs resolved)\n", len(modules), len(allOIDs))
+
+	// Discover enterprise OIDs from MIBs that we haven't walked yet
+	// Look for read-accessible table/scalar OIDs under the vendor enterprise tree
+	fmt.Print("    Scanning MIB OIDs for additional walk targets... ")
+
+	// Collect already-walked OID prefixes
+	walkedPrefixes := map[string]bool{
+		".1.3.6.1.2.1":   true, // standard
+		".1.3.6.1.2.1.17": true, // bridge
+		".1.3.6.1.2.1.17.7": true, // qbridge
+		".1.3.6.1.2.1.105": true, // poe
+	}
+
+	// Find interesting enterprise OIDs from MIB definitions
+	var extraOIDs []mib.OIDEntry
+	seen := map[string]bool{}
+	for _, entry := range allOIDs {
+		// Only enterprise OIDs
+		if !strings.HasPrefix(entry.OID, "1.3.6.1.4.1.") {
+			continue
+		}
+		// Only read-accessible
+		if entry.Access == "not-accessible" || entry.Access == "" {
+			continue
+		}
+		// Get the top-level subtree (first 3 levels under enterprise)
+		parts := strings.Split(entry.OID, ".")
+		if len(parts) < 9 {
+			continue
+		}
+		// Use 9 components as subtree key (enterprises.X.Y.Z)
+		subtree := "." + strings.Join(parts[:9], ".")
+		if seen[subtree] || walkedPrefixes[subtree] {
+			continue
+		}
+		seen[subtree] = true
+		extraOIDs = append(extraOIDs, entry)
+	}
+	fmt.Printf("found %d extra subtrees\n", len(extraOIDs))
+
+	// Walk the discovered subtrees
+	var discovered []mibDiscoveredOID
+	if len(extraOIDs) > 0 {
+		fmt.Printf("    Walking MIB-discovered OIDs...\n")
+		for _, entry := range extraOIDs {
+			parts := strings.Split(entry.OID, ".")
+			subtree := "." + strings.Join(parts[:9], ".")
+
+			fmt.Printf("      %s (%s)... ", entry.Name, subtree)
+			start := time.Now()
+
+			lines, err := doWalk(ip, community, snmpVer, subtree, timeout, retries)
+			dur := time.Since(start)
+
+			d := mibDiscoveredOID{
+				name:   entry.Name,
+				oid:    subtree,
+				module: entry.Module,
+				access: entry.Access,
+			}
+
+			if err != nil || len(lines) == 0 {
+				fmt.Println("SKIP")
+				discovered = append(discovered, d)
+				continue
+			}
+
+			d.count = len(lines)
+			discovered = append(discovered, d)
+
+			// Save as walk file
+			safeMod := strings.ToLower(strings.ReplaceAll(entry.Module, "-", "_"))
+			filename := fmt.Sprintf("%s_mib_%s.walk", vendor, safeMod)
+			walkPath := filepath.Join(evidenceDir, filename)
+
+			// Append if file already exists (multiple subtrees from same module)
+			if existing, err := os.ReadFile(walkPath); err == nil {
+				lines = append([]string{string(existing)}, lines...)
+			}
+			os.WriteFile(walkPath, []byte(strings.Join(lines, "\n")+"\n"), 0644)
+
+			fmt.Printf("OK (%d entries) [%v]\n", d.count, dur.Round(time.Millisecond))
+			*allResults = append(*allResults, walkResult{"mib:" + entry.Name, filename, d.count, dur})
+		}
+	}
+
+	// Save MIB OID index as reference for the analyzer
+	var indexLines []string
+	for _, entry := range allOIDs {
+		line := fmt.Sprintf("%s\t%s\t%s\t%s\t%s", entry.OID, entry.Name, entry.Module, entry.Type, entry.Access)
+		indexLines = append(indexLines, line)
+	}
+	if len(indexLines) > 0 {
+		sort.Strings(indexLines)
+		header := "# OID\tName\tModule\tType\tAccess\n"
+		os.WriteFile(filepath.Join(outDir, "evidence", "mib_oid_index.tsv"),
+			[]byte(header+strings.Join(indexLines, "\n")+"\n"), 0644)
+		fmt.Printf("    Saved MIB OID index: %d entries → mib_oid_index.tsv\n", len(indexLines))
+	}
+
+	return len(allOIDs), modules, discovered
+}
+
 func generateReport(fp map[string]string, intake map[string]string, vendor, model, firmware string,
-	walks []walkResult, probes []probeResult, ciscoVLANs []int, totalEntries int, totalDur time.Duration) string {
+	walks []walkResult, probes []probeResult, ciscoVLANs []int, totalEntries int, totalDur time.Duration,
+	mibModules []string, mibExtra []mibDiscoveredOID, mibOIDCount int) string {
 	var b strings.Builder
 
 	b.WriteString("================================================================\n")
@@ -559,6 +755,25 @@ func generateReport(fp map[string]string, intake map[string]string, vendor, mode
 			b.WriteString(fmt.Sprintf("  %-25s %-20s %s\n", pr.name, status, pr.desc))
 		}
 		b.WriteString(fmt.Sprintf("\n  Summary: %d/%d capabilities detected\n\n", found, found+notFound))
+	}
+
+	if len(mibModules) > 0 {
+		b.WriteString(fmt.Sprintf("MIB Files Loaded: %d modules, %d OIDs resolved\n", len(mibModules), mibOIDCount))
+		b.WriteString("  Modules: " + strings.Join(mibModules, ", ") + "\n\n")
+	}
+
+	if len(mibExtra) > 0 {
+		b.WriteString("MIB-Discovered OIDs:\n")
+		found := 0
+		for _, d := range mibExtra {
+			status := "NO DATA"
+			if d.count > 0 {
+				status = fmt.Sprintf("%d entries", d.count)
+				found++
+			}
+			b.WriteString(fmt.Sprintf("  %-30s %-15s %-12s %s (%s)\n", d.name, d.oid, status, d.module, d.access))
+		}
+		b.WriteString(fmt.Sprintf("\n  MIB-discovered: %d/%d subtrees had data\n\n", found, len(mibExtra)))
 	}
 
 	b.WriteString(fmt.Sprintf("Collection completed in %v\n", totalDur.Round(time.Second)))

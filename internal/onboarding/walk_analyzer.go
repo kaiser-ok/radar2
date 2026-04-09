@@ -25,13 +25,26 @@ type CapabilityResult struct {
 
 // AnalysisReport is the full output of walk analysis.
 type AnalysisReport struct {
-	SysDescr     string             `json:"sys_descr" yaml:"sys_descr"`
-	SysObjectID  string             `json:"sys_object_id" yaml:"sys_object_id"`
-	SysName      string             `json:"sys_name" yaml:"sys_name"`
-	PortCount    int                `json:"port_count" yaml:"port_count"`
-	Capabilities []CapabilityResult `json:"capabilities" yaml:"capabilities"`
-	VendorTree   string             `json:"vendor_tree,omitempty" yaml:"vendor_tree,omitempty"`
-	Summary      string             `json:"summary" yaml:"summary"`
+	SysDescr        string             `json:"sys_descr" yaml:"sys_descr"`
+	SysObjectID     string             `json:"sys_object_id" yaml:"sys_object_id"`
+	SysName         string             `json:"sys_name" yaml:"sys_name"`
+	PortCount       int                `json:"port_count" yaml:"port_count"`
+	Capabilities    []CapabilityResult `json:"capabilities" yaml:"capabilities"`
+	VendorTree      string             `json:"vendor_tree,omitempty" yaml:"vendor_tree,omitempty"`
+	MIBModules      []string           `json:"mib_modules,omitempty" yaml:"mib_modules,omitempty"`
+	MIBCapabilities []MIBCapability    `json:"mib_capabilities,omitempty" yaml:"mib_capabilities,omitempty"`
+	Summary         string             `json:"summary" yaml:"summary"`
+}
+
+// MIBCapability represents a capability discovered from MIB definitions.
+type MIBCapability struct {
+	Name     string `json:"name" yaml:"name"`
+	OID      string `json:"oid" yaml:"oid"`
+	Module   string `json:"module" yaml:"module"`
+	Type     string `json:"type" yaml:"type"`
+	Access   string `json:"access" yaml:"access"`
+	HasData  bool   `json:"has_data" yaml:"has_data"`
+	Entries  int    `json:"entries,omitempty" yaml:"entries,omitempty"`
 }
 
 // OID prefixes for capability detection
@@ -134,6 +147,12 @@ func parseWalkLine(line string) (WalkEntry, error) {
 	return WalkEntry{OID: oid, Type: typ, Value: val}, nil
 }
 
+// MIBResolver provides OID↔name lookups. Implemented by mib.Parser and mib.Store.
+type MIBResolver interface {
+	LookupName(oid string) string
+	LookupOID(name string) string
+}
+
 // AnalyzeWalks takes multiple walk files and produces a capability analysis report.
 func AnalyzeWalks(walkFiles map[string]string) (*AnalysisReport, error) {
 	// Parse all walk files into one combined entry list
@@ -183,6 +202,86 @@ func AnalyzeWalks(walkFiles map[string]string) (*AnalysisReport, error) {
 		supported, len(report.Capabilities))
 
 	return report, nil
+}
+
+// AnalyzeWalksWithMIBs runs the standard analysis plus MIB-enhanced discovery.
+// The mibDir is the evidence/mibs/ directory containing vendor MIB files.
+// The resolver provides OID↔name lookups from the MIB parser.
+func AnalyzeWalksWithMIBs(walkFiles map[string]string, resolver MIBResolver, mibOIDs []MIBOIDEntry) (*AnalysisReport, error) {
+	report, err := AnalyzeWalks(walkFiles)
+	if err != nil {
+		return nil, err
+	}
+
+	if resolver == nil {
+		return report, nil
+	}
+
+	// Parse all walk files for MIB cross-referencing
+	var allEntries []WalkEntry
+	for _, path := range walkFiles {
+		entries, _ := ParseWalkFile(path)
+		allEntries = append(allEntries, entries...)
+	}
+
+	// Enrich capability evidence with OID names from MIB
+	for i, cap := range report.Capabilities {
+		var enriched []string
+		for _, oid := range cap.OIDsFound {
+			name := resolver.LookupName(strings.TrimPrefix(oid, "."))
+			if name != "" {
+				enriched = append(enriched, fmt.Sprintf("%s (%s)", oid, name))
+			}
+		}
+		if len(enriched) > 0 {
+			report.Capabilities[i].Evidence += "; MIB names: " + strings.Join(enriched, ", ")
+		}
+	}
+
+	// Discover capabilities from MIB OID entries that have data in walks
+	for _, mibEntry := range mibOIDs {
+		if mibEntry.Access == "not-accessible" || mibEntry.Access == "" {
+			continue
+		}
+		// Only enterprise OIDs (vendor-specific capabilities)
+		if !strings.HasPrefix(mibEntry.OID, "1.3.6.1.4.1.") {
+			continue
+		}
+
+		count := countPrefix(allEntries, "."+mibEntry.OID)
+		mc := MIBCapability{
+			Name:    mibEntry.Name,
+			OID:     mibEntry.OID,
+			Module:  mibEntry.Module,
+			Type:    mibEntry.Type,
+			Access:  mibEntry.Access,
+			HasData: count > 0,
+			Entries: count,
+		}
+		report.MIBCapabilities = append(report.MIBCapabilities, mc)
+	}
+
+	// Update summary
+	mibFound := 0
+	for _, mc := range report.MIBCapabilities {
+		if mc.HasData {
+			mibFound++
+		}
+	}
+	if len(report.MIBCapabilities) > 0 {
+		report.Summary += fmt.Sprintf(", %d/%d MIB-defined vendor OIDs have data", mibFound, len(report.MIBCapabilities))
+	}
+
+	return report, nil
+}
+
+// MIBOIDEntry is a simplified OID entry passed from the MIB parser to the analyzer.
+type MIBOIDEntry struct {
+	Name   string
+	OID    string
+	Module string
+	Type   string
+	Access string
 }
 
 func analyzeCapability(name string, checks []struct{ prefix, desc string }, entries []WalkEntry) CapabilityResult {
