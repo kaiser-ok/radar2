@@ -7,6 +7,13 @@ LDFLAGS := -X main.version=$(VERSION) -X main.buildDate=$(BUILD_DATE)
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/radar ./cmd/radar/
 
+collector:
+	go build -ldflags "$(LDFLAGS)" -o bin/collector ./cmd/collector/
+
+# Cross-compile collector for Windows (useful for remote sites)
+collector-windows:
+	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o bin/collector.exe ./cmd/collector/
+
 run: build
 	./bin/radar
 

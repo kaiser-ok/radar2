@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -218,4 +219,31 @@ func (h *OnboardingHandler) Verify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{"results": results})
+}
+
+// POST /api/v2/onboarding/import — import offline collector output
+func (h *OnboardingHandler) ImportCollected(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Dir string `json:"dir"`
+	}
+	if err := DecodeJSON(r, &req); err != nil || req.Dir == "" {
+		Error(w, http.StatusBadRequest, "dir is required (path to collector output directory)")
+		return
+	}
+
+	c, err := h.svc.ImportCollected(req.Dir)
+	if err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			Error(w, http.StatusConflict, err.Error())
+		} else {
+			Error(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	JSON(w, http.StatusCreated, map[string]interface{}{
+		"status":  "imported",
+		"case":    c,
+		"message": "Evidence imported. Run POST /api/v2/onboarding/" + fmt.Sprintf("%d", c.ID) + "/analyze next.",
+	})
 }

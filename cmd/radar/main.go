@@ -225,6 +225,7 @@ func main() {
 
 		// Onboarding workflow
 		r.Post("/onboarding", onboardingH.CreateCase)
+		r.Post("/onboarding/import", onboardingH.ImportCollected)
 		r.Get("/onboarding", onboardingH.ListCases)
 		r.Get("/onboarding/{id}", onboardingH.GetCase)
 		r.Delete("/onboarding/{id}", onboardingH.DeleteCase)

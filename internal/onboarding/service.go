@@ -433,6 +433,65 @@ func formatHex(b []byte) string {
 	return strings.Join(parts, " ")
 }
 
+// ImportCollected imports a directory created by the offline collector.
+// It reads fingerprint.yaml and intake.yaml, creates a case, and moves evidence files.
+func (s *Service) ImportCollected(importDir string) (*Case, error) {
+	// Read intake.yaml
+	intakeData, err := os.ReadFile(filepath.Join(importDir, "intake.yaml"))
+	if err != nil {
+		return nil, fmt.Errorf("intake.yaml not found in %s: %w", importDir, err)
+	}
+	var intake map[string]string
+	if err := yaml.Unmarshal(intakeData, &intake); err != nil {
+		return nil, fmt.Errorf("invalid intake.yaml: %w", err)
+	}
+
+	vendor := intake["vendor"]
+	model := intake["model"]
+	if vendor == "" || model == "" {
+		return nil, fmt.Errorf("intake.yaml missing vendor or model")
+	}
+
+	// Create the case via normal flow
+	req := &IntakeRequest{
+		Vendor:      vendor,
+		Model:       model,
+		Firmware:    intake["firmware"],
+		SupportTier: intake["tier"],
+		Owner:       "offline-collector",
+	}
+	c, err := s.CreateCase(req)
+	if err != nil {
+		return nil, err
+	}
+
+	caseDir := filepath.Join(s.baseDir, c.Dir)
+
+	// Copy fingerprint.yaml
+	copyIfExists(filepath.Join(importDir, "fingerprint.yaml"), filepath.Join(caseDir, "fingerprint.yaml"))
+
+	// Copy all evidence files
+	srcEvidence := filepath.Join(importDir, "evidence")
+	dstEvidence := filepath.Join(caseDir, "evidence")
+	if entries, err := os.ReadDir(srcEvidence); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			copyIfExists(filepath.Join(srcEvidence, e.Name()), filepath.Join(dstEvidence, e.Name()))
+		}
+	}
+
+	// Copy report.txt if present
+	copyIfExists(filepath.Join(importDir, "report.txt"), filepath.Join(caseDir, "report.txt"))
+
+	// Update status to evidence (ready for analyze)
+	s.updateStatus(c.ID, StatusEvidence)
+	c.Status = StatusEvidence
+
+	return c, nil
+}
+
 // UploadEvidence saves an evidence file (walk, CLI output, MIB).
 func (s *Service) UploadEvidence(id int64, filename string, content io.Reader) error {
 	c, err := s.GetCase(id)
